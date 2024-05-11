@@ -323,13 +323,14 @@ class CDiscordProto : public PROTO<CDiscordProto>
 	//////////////////////////////////////////////////////////////////////////////////////
 	// options
 
-	CMOption<wchar_t*> m_wszEmail;        // my own email
-	CMOption<wchar_t*> m_wszDefaultGroup; // clist group to store contacts
-	CMOption<bool>     m_bUseGroupchats;  // Shall we connect Guilds at all?
-	CMOption<bool>     m_bHideGroupchats; // Do not open chat windows on creation
-	CMOption<bool>     m_bUseGuildGroups; // use special subgroups for guilds
-	CMOption<bool>     m_bSyncDeleteMsgs; // delete messages from Miranda if they are deleted at the server
-	CMOption<bool>     m_bSyncMarkRead;   // hidden option: send "mark read" packet to server when Miranda displays a message
+	CMOption<wchar_t*> m_wszEmail;         // my own email
+	CMOption<wchar_t*> m_wszDefaultGroup;  // clist group to store contacts
+	CMOption<bool>     m_bUseGroupchats;   // Shall we connect Guilds at all?
+	CMOption<bool>     m_bHideGroupchats;  // Do not open chat windows on creation
+	CMOption<bool>     m_bUseGuildGroups;  // use special subgroups for guilds
+	CMOption<bool>     m_bSyncDeleteMsgs;  // delete messages from Miranda if they are deleted at the server
+	CMOption<bool>     m_bSyncDeleteUsers; // delete contacts from Miranda if they are deleted at the server
+	CMOption<bool>     m_bSyncMarkRead;    // hidden option: send "mark read" packet to server when Miranda displays a message
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// common data
@@ -347,6 +348,7 @@ class CDiscordProto : public PROTO<CDiscordProto>
 	CDiscordUser* FindUser(const wchar_t *pwszUsername, int iDiscriminator);
 	CDiscordUser* FindUserByChannel(SnowFlake channelId);
 
+	CMStringW     PrepareMessageText(const JSONNode &pRoot, CDiscordUser *pUser);
 	void          PreparePrivateChannel(const JSONNode &);
 	CDiscordUser* PrepareUser(const JSONNode &);
 
@@ -451,6 +453,7 @@ public:
 
 	void     OnBuildProtoMenu() override;
 	bool     OnContactDeleted(MCONTACT, uint32_t flags) override;
+	void     OnEventDeleted(MCONTACT, MEVENT, int flags) override;
 	MWindow  OnCreateAccMgrUI(MWindow) override;
 	void     OnMarkRead(MCONTACT, MEVENT) override;
 	void     OnModulesLoaded() override;
@@ -462,6 +465,7 @@ public:
 	INT_PTR __cdecl RequestFriendship(WPARAM, LPARAM);
 
 	INT_PTR __cdecl SvcLeaveChat(WPARAM, LPARAM);
+	INT_PTR __cdecl SvcEmptyServerHistory(WPARAM, LPARAM);
 
 	INT_PTR __cdecl GetAvatarCaps(WPARAM, LPARAM);
 	INT_PTR __cdecl GetAvatarInfo(WPARAM, LPARAM);
@@ -530,6 +534,7 @@ public:
 	void OnReceiveHistory(MHttpResponse*, AsyncHttpRequest*);
 
 	bool RetrieveAvatar(MCONTACT hContact);
+	bool RetrieveChannelAvatar(MCONTACT hContact);
 	void OnReceiveAvatar(MHttpResponse*, AsyncHttpRequest*);
 
 	void OnSendMsg(MHttpResponse*, AsyncHttpRequest*);
@@ -539,6 +544,8 @@ public:
 
 	void SendMarkRead(void);
 	void SetServerStatus(int iStatus);
+
+	void AddFriend(SnowFlake id);
 	void RemoveFriend(SnowFlake id);
 
 	CMStringW GetAvatarFilename(MCONTACT hContact);

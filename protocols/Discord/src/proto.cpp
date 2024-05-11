@@ -50,11 +50,12 @@ CDiscordProto::CDiscordProto(const char *proto_name, const wchar_t *username) :
 
 	m_wszEmail(this, "Email", L""),
 	m_wszDefaultGroup(this, "GroupName", DB_KEYVAL_GROUP),
+	m_bSyncMarkRead(this, "SendMarkRead", true),
 	m_bUseGroupchats(this, "UseGroupChats", true),
 	m_bHideGroupchats(this, "HideChats", true),
 	m_bUseGuildGroups(this, "UseGuildGroups", false),
 	m_bSyncDeleteMsgs(this, "DeleteServerMsgs", true),
-	m_bSyncMarkRead(this, "SendMarkRead", true)
+	m_bSyncDeleteUsers(this, "DeleteServerUsers", true)
 {
 	// Services
 	CreateProtoService(PS_GETAVATARINFO, &CDiscordProto::GetAvatarInfo);
@@ -63,7 +64,9 @@ CDiscordProto::CDiscordProto(const char *proto_name, const wchar_t *username) :
 	CreateProtoService(PS_SETMYAVATAR, &CDiscordProto::SetMyAvatar);
 
 	CreateProtoService(PS_MENU_REQAUTH, &CDiscordProto::RequestFriendship);
+
 	CreateProtoService(PS_MENU_LOADHISTORY, &CDiscordProto::OnMenuLoadHistory);
+	CreateProtoService(PS_EMPTY_SRV_HISTORY, &CDiscordProto::SvcEmptyServerHistory);
 
 	CreateProtoService(PS_LEAVECHAT, &CDiscordProto::SvcLeaveChat);
 
@@ -225,7 +228,7 @@ INT_PTR CDiscordProto::GetCaps(int type, MCONTACT)
 		return PF2_ONLINE | PF2_SHORTAWAY | PF2_HEAVYDND | PF2_INVISIBLE;
 	case PFLAGNUM_4:
 		return PF4_FORCEAUTH | PF4_NOCUSTOMAUTH | PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_SUPPORTIDLE | PF4_AVATARS | 
-			PF4_IMSENDOFFLINE | PF4_SERVERMSGID | PF4_OFFLINEFILES | PF4_GROUPCHATFILES;
+			PF4_IMSENDOFFLINE | PF4_SERVERMSGID | PF4_OFFLINEFILES | PF4_GROUPCHATFILES | PF4_REPLY;
 	case PFLAG_UNIQUEIDTEXT:
 		return (INT_PTR)TranslateT("User ID");
 	}
@@ -268,6 +271,54 @@ int CDiscordProto::SetStatus(int iNewStatus)
 	return 0;
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// Authorization
+
+int CDiscordProto::AuthRequest(MCONTACT hContact, const wchar_t *)
+{
+	ptrW wszUsername(getWStringA(hContact, DB_KEY_NICK));
+	int iDiscriminator(getDword(hContact, DB_KEY_DISCR, -1));
+	if (wszUsername == nullptr || iDiscriminator == -1)
+		return 1; // error
+
+	JSONNode root; root << WCHAR_PARAM("username", wszUsername);
+	if (iDiscriminator )
+		root << INT_PARAM("discriminator", iDiscriminator);
+	Push(new AsyncHttpRequest(this, REQUEST_POST, "/users/@me/relationships", nullptr, &root));
+	return 0;
+}
+
+int CDiscordProto::AuthRecv(MCONTACT, DB::EventInfo &dbei)
+{
+	return Proto_AuthRecv(m_szModuleName, dbei);
+}
+
+int CDiscordProto::Authorize(MEVENT hDbEvent)
+{
+	DB::EventInfo dbei;
+	dbei.cbBlob = -1;
+	if (db_event_get(hDbEvent, &dbei)) return 1;
+	if (dbei.eventType != EVENTTYPE_AUTHREQUEST) return 1;
+	if (mir_strcmp(dbei.szModule, m_szModuleName)) return 1;
+
+	MCONTACT hContact = DbGetAuthEventContact(&dbei);
+	AddFriend(getId(hContact, DB_KEY_ID));
+	return 0;
+}
+
+int CDiscordProto::AuthDeny(MEVENT hDbEvent, const wchar_t *)
+{
+	DB::EventInfo dbei;
+	dbei.cbBlob = -1;
+	if (db_event_get(hDbEvent, &dbei)) return 1;
+	if (dbei.eventType != EVENTTYPE_AUTHREQUEST) return 1;
+	if (mir_strcmp(dbei.szModule, m_szModuleName)) return 1;
+
+	MCONTACT hContact = DbGetAuthEventContact(&dbei);
+	RemoveFriend(getId(hContact, DB_KEY_ID));
+	return 0;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 
 static INT_PTR CALLBACK AdvancedSearchDlgProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM)
@@ -291,116 +342,6 @@ HWND CDiscordProto::CreateExtendedSearchUI(HWND hwndParent)
 		return CreateDialogParam(g_plugin.getInst(), MAKEINTRESOURCE(IDD_EXTSEARCH), hwndParent, AdvancedSearchDlgProc, 0);
 
 	return nullptr;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-
-void CDiscordProto::SearchThread(void *param)
-{
-	Sleep(100);
-
-	PROTOSEARCHRESULT psr = { 0 };
-	psr.cbSize = sizeof(psr);
-	psr.flags = PSR_UNICODE;
-	psr.nick.w = (wchar_t*)param;
-	psr.firstName.w = L"";
-	psr.lastName.w = L"";
-	psr.id.w = L"";
-	ProtoBroadcastAck(0, ACKTYPE_SEARCH, ACKRESULT_DATA, this, (LPARAM)&psr);
-
-	ProtoBroadcastAck(0, ACKTYPE_SEARCH, ACKRESULT_SUCCESS, this, 0);
-	mir_free(param);
-}
-
-HANDLE CDiscordProto::SearchAdvanced(HWND hwndDlg)
-{
-	if (!m_bOnline || !IsWindow(hwndDlg))
-		return nullptr;
-
-	wchar_t wszNick[200];
-	GetDlgItemTextW(hwndDlg, IDC_NICK, wszNick, _countof(wszNick));
-	if (wszNick[0] == 0) // empty string? reject
-		return nullptr;
-
-	wchar_t *p = wcschr(wszNick, '#');
-	if (p == nullptr) // wrong user id
-		return nullptr;
-
-	ForkThread(&CDiscordProto::SearchThread, mir_wstrdup(wszNick));
-	return this;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-// Basic search - by SnowFlake
-
-void CDiscordProto::OnReceiveUserinfo(MHttpResponse *pReply, AsyncHttpRequest*)
-{
-	JsonReply root(pReply);
-	if (!root) {
-		ProtoBroadcastAck(0, ACKTYPE_SEARCH, ACKRESULT_FAILED, this);
-		return;
-	}
-
-	ForkThread(&CDiscordProto::SearchThread, getNick(root.data()).Detach());
-}
-
-HANDLE CDiscordProto::SearchBasic(const wchar_t *wszId)
-{
-	if (!m_bOnline)
-		return nullptr;
-
-	CMStringA szUrl = "/users/";
-	szUrl.AppendFormat(ptrA(mir_utf8encodeW(wszId)));
-	Push(new AsyncHttpRequest(this, REQUEST_GET, szUrl, &CDiscordProto::OnReceiveUserinfo));
-	return (HANDLE)1; // Success
-}
-
-////////////////////////////////////////////////////////////////////////////////////////
-// Authorization
-
-int CDiscordProto::AuthRequest(MCONTACT hContact, const wchar_t*)
-{
-	ptrW wszUsername(getWStringA(hContact, DB_KEY_NICK));
-	int iDiscriminator(getDword(hContact, DB_KEY_DISCR, -1));
-	if (wszUsername == nullptr || iDiscriminator == -1)
-		return 1; // error
-
-	JSONNode root; root << WCHAR_PARAM("username", wszUsername) << INT_PARAM("discriminator", iDiscriminator);
-	Push(new AsyncHttpRequest(this, REQUEST_POST, "/users/@me/relationships", nullptr, &root));
-	return 0;
-}
-
-int CDiscordProto::AuthRecv(MCONTACT, DB::EventInfo &dbei)
-{
-	return Proto_AuthRecv(m_szModuleName, dbei);
-}
-
-int CDiscordProto::Authorize(MEVENT hDbEvent)
-{
-	DB::EventInfo dbei;
-	dbei.cbBlob = -1;
-	if (db_event_get(hDbEvent, &dbei)) return 1;
-	if (dbei.eventType != EVENTTYPE_AUTHREQUEST) return 1;
-	if (mir_strcmp(dbei.szModule, m_szModuleName)) return 1;
-
-	JSONNode root;
-	MCONTACT hContact = DbGetAuthEventContact(&dbei);
-	CMStringA szUrl(FORMAT, "/users/@me/relationships/%lld", getId(hContact, DB_KEY_ID));
-	Push(new AsyncHttpRequest(this, REQUEST_PUT, szUrl, nullptr, &root));
-	return 0;
-}
-
-int CDiscordProto::AuthDeny(MEVENT hDbEvent, const wchar_t*)
-{
-	DB::EventInfo dbei;
-	dbei.cbBlob = -1;
-	if (db_event_get(hDbEvent, &dbei)) return 1;
-	if (dbei.eventType != EVENTTYPE_AUTHREQUEST) return 1;
-	if (mir_strcmp(dbei.szModule, m_szModuleName)) return 1;
-
-	MCONTACT hContact = DbGetAuthEventContact(&dbei);
-	RemoveFriend(getId(hContact, DB_KEY_ID));
-	return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -458,6 +399,68 @@ MCONTACT CDiscordProto::AddToListByEvent(int flags, int, MEVENT hDbEvent)
 	return blob.get_contact();
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////
+
+void CDiscordProto::SearchThread(void *param)
+{
+	Sleep(100);
+
+	PROTOSEARCHRESULT psr = { 0 };
+	psr.cbSize = sizeof(psr);
+	psr.flags = PSR_UNICODE;
+	psr.nick.w = (wchar_t *)param;
+	psr.firstName.w = L"";
+	psr.lastName.w = L"";
+	psr.id.w = L"";
+	ProtoBroadcastAck(0, ACKTYPE_SEARCH, ACKRESULT_DATA, this, (LPARAM)&psr);
+
+	ProtoBroadcastAck(0, ACKTYPE_SEARCH, ACKRESULT_SUCCESS, this, 0);
+	mir_free(param);
+}
+
+HANDLE CDiscordProto::SearchAdvanced(HWND hwndDlg)
+{
+	if (!m_bOnline || !IsWindow(hwndDlg))
+		return nullptr;
+
+	wchar_t wszNick[200];
+	GetDlgItemTextW(hwndDlg, IDC_NICK, wszNick, _countof(wszNick));
+	if (wszNick[0] == 0) // empty string? reject
+		return nullptr;
+
+	wchar_t *p = wcschr(wszNick, '#');
+	if (p == nullptr) // wrong user id
+		return nullptr;
+
+	ForkThread(&CDiscordProto::SearchThread, mir_wstrdup(wszNick));
+	return this;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// Basic search - by SnowFlake
+
+void CDiscordProto::OnReceiveUserinfo(MHttpResponse *pReply, AsyncHttpRequest *)
+{
+	JsonReply root(pReply);
+	if (!root) {
+		ProtoBroadcastAck(0, ACKTYPE_SEARCH, ACKRESULT_FAILED, this);
+		return;
+	}
+
+	ForkThread(&CDiscordProto::SearchThread, getNick(root.data()).Detach());
+}
+
+HANDLE CDiscordProto::SearchBasic(const wchar_t *wszId)
+{
+	if (!m_bOnline)
+		return nullptr;
+
+	CMStringA szUrl = "/users/";
+	szUrl.AppendFormat(ptrA(mir_utf8encodeW(wszId)));
+	Push(new AsyncHttpRequest(this, REQUEST_GET, szUrl, &CDiscordProto::OnReceiveUserinfo));
+	return (HANDLE)1; // Success
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 // SendMsg
 
@@ -482,7 +485,7 @@ void CDiscordProto::OnSendMsg(MHttpResponse *pReply, AsyncHttpRequest *pReq)
 	}
 }
 
-int CDiscordProto::SendMsg(MCONTACT hContact, MEVENT, const char *pszSrc)
+int CDiscordProto::SendMsg(MCONTACT hContact, MEVENT hReplyEvent, const char *pszSrc)
 {
 	if (!m_bOnline) 
 		return -1;
@@ -513,6 +516,18 @@ int CDiscordProto::SendMsg(MCONTACT hContact, MEVENT, const char *pszSrc)
 	// to distinguish our own messages from these generated by another clients
 	SnowFlake nonce; Utils_GetRandom(&nonce, sizeof(nonce)); nonce = abs(nonce);
 	JSONNode body; body << WCHAR_PARAM("content", wszText) << SINT64_PARAM("nonce", nonce);
+
+	if (hReplyEvent) {
+		SnowFlake iReplyId = 0;
+		DB::EventInfo dbei(hReplyEvent, false);
+		if (dbei && dbei.szId) {
+			iReplyId = _atoi64(dbei.szId);
+
+			JSONNode reply; reply.set_name("message_reference");
+			reply << INT64_PARAM("channel_id", pUser->channelId) << INT64_PARAM("message_id", iReplyId);
+			body << reply;
+		}
+	}
 
 	CMStringA szUrl(FORMAT, "/channels/%lld/messages", pUser->channelId);
 	AsyncHttpRequest *pReq = new AsyncHttpRequest(this, REQUEST_POST, szUrl, &CDiscordProto::OnSendMsg, &body);
@@ -643,7 +658,25 @@ bool CDiscordProto::OnContactDeleted(MCONTACT hContact, uint32_t flags)
 	return true;
 }
 
+void CDiscordProto::OnEventDeleted(MCONTACT hContact, MEVENT hEvent, int flags)
+{
+	// the command arrived from the server, don't send it back then
+	if (!(flags & CDF_DEL_HISTORY))
+		return;
+
+	DB::EventInfo dbei(hEvent, false);
+	if (dbei && dbei.szId) {
+		CMStringA szUrl(FORMAT, "/channels/%lld/messages/%s", getId(hContact, DB_KEY_ID), dbei.szId);
+		Push(new AsyncHttpRequest(this, REQUEST_DELETE, szUrl, 0));
+	}
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
+
+INT_PTR CDiscordProto::CDiscordProto::SvcEmptyServerHistory(WPARAM, LPARAM)
+{
+	return 0;
+}
 
 INT_PTR CDiscordProto::RequestFriendship(WPARAM hContact, LPARAM)
 {

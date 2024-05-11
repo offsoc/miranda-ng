@@ -110,7 +110,11 @@ void CDiscordProto::OnCommandChannelDeleted(const JSONNode &pRoot)
 			Chat_Control(si, SESSION_OFFLINE);
 			Chat_Terminate(si);
 		}
-		db_delete_contact(pUser->hContact);
+
+		if (m_bSyncDeleteUsers)
+			db_delete_contact(pUser->hContact);
+		else
+			Contact::Hide(pUser->hContact);
 	}
 	else {
 		CDiscordGuild *pGuild = FindGuild(guildId);
@@ -205,6 +209,8 @@ void CDiscordProto::OnCommandChannelUpdated(const JSONNode &pRoot)
 
 	// reset members info for private channels
 	if (pUser->pGuild == nullptr) {
+		CheckAvatarChange(pUser->hContact, pRoot["icon"].as_mstring());
+
 		for (auto &it : pUser->si->arUsers) {
 			SnowFlake userId = _wtoi64(it->pszUID);
 
@@ -234,8 +240,12 @@ void CDiscordProto::OnCommandFriendRemoved(const JSONNode &pRoot)
 	CDiscordUser *pUser = FindUser(id);
 	if (pUser != nullptr) {
 		if (pUser->hContact)
-			if (pUser->bIsPrivate)
-				db_delete_contact(pUser->hContact);
+			if (pUser->bIsPrivate) {
+				if (m_bSyncDeleteUsers)
+					db_delete_contact(pUser->hContact);
+				else
+					Contact::Hide(pUser->hContact);
+			}
 
 		arUsers.remove(pUser);
 	}
@@ -442,10 +452,9 @@ void CDiscordProto::OnCommandMessageUpdate(const JSONNode &pRoot)
 
 void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 {
-	CMStringW wszMessageId = pRoot["id"].as_mstring();
 	CMStringA szUserId = pRoot["author"]["id"].as_mstring();
 	SnowFlake userId = _atoi64(szUserId);
-	SnowFlake msgId = _wtoi64(wszMessageId);
+	SnowFlake msgId = ::getId(pRoot["id"]);
 
 	// try to find a sender by his channel
 	SnowFlake channelId = ::getId(pRoot["channel_id"]);
@@ -462,46 +471,17 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 	if (lastId < msgId)
 		setId(pUser->hContact, DB_KEY_LASTMSGID, msgId);
 
-	char szMsgId[100];
+	char szMsgId[100], szReplyId[100];
 	_i64toa_s(msgId, szMsgId, _countof(szMsgId), 10);
 
 	COwnMessage ownMsg(::getId(pRoot["nonce"]), 0);
 	COwnMessage *p = arOwnMessages.find(&ownMsg);
-	if (p != nullptr) { // own message? skip it
+	if (p != nullptr && !Contact::IsGroupChat(pUser->hContact)) { // own message? skip it
 		ProtoBroadcastAck(pUser->hContact, ACKTYPE_MESSAGE, ACKRESULT_SUCCESS, (HANDLE)p->reqId, (LPARAM)szMsgId);
 		debugLogA("skipping own message with nonce=%lld, id=%lld", ownMsg.nonce, msgId);
 	}
 	else {
-		CMStringW wszText = PrepareMessageText(pRoot), wszMentioned;
-		SnowFlake mentionId = 0;
-
-		for (auto &it : pRoot["mentions"]) {
-			wszMentioned = getName(it);
-			mentionId = _wtoi64(it["id"].as_mstring());
-			break;
-		}
-
-		switch (pRoot["type"].as_int()) {
-		case 4: // chat was renamed
-			if (pUser->si)
-				setWString(pUser->si->hContact, "Nick", wszText);
-			return;
-
-		case 1: // user was added to chat
-			if (mentionId != userId)
-				wszText.Format(TranslateT("%s added %s to the group"), getName(pRoot["author"]).c_str(), wszMentioned.c_str());
-			else
-				wszText.Format(TranslateT("%s joined the group"), wszMentioned.c_str());
-			break;
-
-		case 2: // user was removed from chat
-			if (mentionId != userId)
-				wszText.Format(TranslateT("%s removed %s from the group"), getName(pRoot["author"]).c_str(), wszMentioned.c_str());
-			else
-				wszText.Format(TranslateT("%s left the group"), wszMentioned.c_str());
-			break;
-		}
-
+		CMStringW wszText = PrepareMessageText(pRoot, pUser);
 		if (wszText.IsEmpty())
 			return;
 
@@ -525,12 +505,16 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 					wszText.Insert(0, wszOldText);
 			}
 
+			if (auto &nReply = pRoot["message_reference"]) {
+				_i64toa(::getId(nReply["message_id"]), szReplyId, 10);
+				dbei.szReplyId = szReplyId;
+			}
+
 			debugLogA("store a message from private user %lld, channel id %lld", pUser->id, pUser->channelId);
-			ptrA buf(mir_utf8encodeW(wszText));
 
 			dbei.timestamp = (uint32_t)StringToDate(pRoot["timestamp"].as_mstring());
-			dbei.pBlob = buf;
 			dbei.szId = szMsgId;
+			replaceStr(dbei.pBlob, mir_utf8encodeW(wszText));
 
 			if (!pUser->bIsPrivate || pUser->bIsGroup) {
 				dbei.szUserId = szUserId;
@@ -543,7 +527,6 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 				ProtoChainRecvMsg(pUser->hContact, dbei);
 		}
 	}
-
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////

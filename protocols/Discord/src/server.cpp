@@ -18,7 +18,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "stdafx.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////
-// removes a friend from the server
+// add / removes a friend from the server
+
+void CDiscordProto::AddFriend(SnowFlake id)
+{
+	Push(new AsyncHttpRequest(this, REQUEST_PUT, CMStringA(FORMAT, "/users/@me/relationships/%lld", id), nullptr));
+}
 
 void CDiscordProto::RemoveFriend(SnowFlake id)
 {
@@ -85,10 +90,10 @@ void CDiscordProto::OnReceiveHistory(MHttpResponse *pReply, AsyncHttpRequest *pR
 
 	for (auto &it : arNodes) {
 		auto &pNode = *it;
-		if (pNode["type"].as_int() != 0)
+		CMStringW wszText = PrepareMessageText(pNode, pUser);
+		if (wszText.IsEmpty())
 			continue;
 
-		CMStringW wszText = PrepareMessageText(pNode);
 		CMStringA szUserId = pNode["author"]["id"].as_mstring();
 		SnowFlake msgid = ::getId(pNode["id"]);
 		SnowFlake authorid = _atoi64(szUserId);
@@ -119,7 +124,6 @@ void CDiscordProto::OnReceiveHistory(MHttpResponse *pReply, AsyncHttpRequest *pR
 		dbei.pBlob = szBody;
 		dbei.cbBlob = (int)mir_strlen(szBody);
 
-		bool bSucceeded = false;
 		char szMsgId[100];
 		_i64toa_s(msgid, szMsgId, _countof(szMsgId), 10);
 		dbei.szId = szMsgId;

@@ -24,7 +24,7 @@ enum {
 	IDM_CHANGENICK, IDM_CHANGETOPIC, IDM_RENAME, IDM_PASSOWNER,
 	IDM_DESTROY, IDM_LEAVE,
 
-	IDM_KICK, IDM_INVITE
+	IDM_KICK, IDM_INVITE, IDM_ADD
 };
 
 static void sttDisableMenuItem(int nItems, gc_item *items, uint32_t id, bool disabled)
@@ -77,6 +77,7 @@ static gc_item sttLogListItems[] =
 static gc_item sttNicklistItems[] =
 {
 	{ LPGENW("Copy ID"), IDM_COPY_ID, MENU_ITEM },
+	{ LPGENW("Add friend"), IDM_ADD, MENU_ITEM },
 	{ nullptr, 0, MENU_SEPARATOR },
 	{ LPGENW("Kick user"), IDM_KICK, MENU_ITEM },
 	{ LPGENW("Make group owner"), IDM_PASSOWNER, MENU_ITEM },
@@ -107,6 +108,10 @@ int CDiscordProto::GroupchatMenuHook(WPARAM, LPARAM lParam)
 		Chat_AddMenuItems(gcmi->hMenu, _countof(sttLogListItems), sttLogListItems, &g_plugin);
 	}
 	else if (gcmi->Type == MENU_ON_NICKLIST) {
+		SnowFlake userId = (gcmi->pszUID) ? _wtoi64(gcmi->pszUID) : 0;
+		bool isFriend = (userId == m_ownId) ? true : FindUser(userId) != 0;
+
+		sttDisableMenuItem(_countof(sttNicklistItems), sttNicklistItems, IDM_ADD, isFriend);
 		sttDisableMenuItem(_countof(sttNicklistItems), sttNicklistItems, IDM_KICK, !isOwner);
 		sttDisableMenuItem(_countof(sttNicklistItems), sttNicklistItems, IDM_PASSOWNER, !isOwner);
 
@@ -315,6 +320,10 @@ void CDiscordProto::Chat_ProcessNickMenu(GCHOOK* gch)
 		CopyId(gch->ptszUID);
 		break;
 
+	case IDM_ADD:
+		AddFriend(_wtoi64(gch->ptszUID));
+		break;
+
 	case IDM_KICK:
 		KickChatUser(pChannel, gch->ptszUID);
 		break;
@@ -333,7 +342,8 @@ int CDiscordProto::GroupchatEventHook(WPARAM, LPARAM lParam)
 	if (gch == nullptr)
 		return 0;
 
-	if (mir_strcmpi(gch->si->pszModule, m_szModuleName))
+	auto *si = gch->si;
+	if (mir_strcmpi(si->pszModule, m_szModuleName))
 		return 0;
 
 	switch (gch->iType) {
@@ -346,27 +356,22 @@ int CDiscordProto::GroupchatEventHook(WPARAM, LPARAM lParam)
 			if (pos != -1) {
 				auto wszWord = wszText.Left(pos);
 				wszWord.Trim();
-				if (auto *si = Chat_Find(gch->si->ptszID, gch->si->pszModule)) {
-					USERINFO *pUser = nullptr;
 
-					for (auto &U : si->getUserList())
-						if (wszWord == U->pszNick) {
-							pUser = U;
-							break;
-						}
-
-					if (pUser) {
-						wszText.Delete(0, pos);
-						wszText.Insert(0, L"<@" + CMStringW(pUser->pszUID) + L">");
+				USERINFO *pUser = nullptr;
+				for (auto &U : si->getUserList())
+					if (wszWord == U->pszNick) {
+						pUser = U;
+						break;
 					}
+
+				if (pUser) {
+					wszText.Delete(0, pos);
+					wszText.Insert(0, L"<@" + CMStringW(pUser->pszUID) + L">");
 				}
 			}
 
 			Chat_UnescapeTags(wszText.GetBuffer());
-
-			JSONNode body; body << WCHAR_PARAM("content", wszText);
-			CMStringA szUrl(FORMAT, "/channels/%S/messages", gch->si->ptszID);
-			Push(new AsyncHttpRequest(this, REQUEST_POST, szUrl, nullptr, &body));
+			SendMsg(si->hContact, (si->pDlg) ? si->pDlg->m_hQuoteEvent : 0, T2Utf(wszText));
 		}
 		break;
 
