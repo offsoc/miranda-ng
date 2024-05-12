@@ -186,6 +186,7 @@ struct DBVARIANT
 #define DBEF_SECURE    0x0080  // event is encrypted
 #define DBEF_STRONG    0x0100  // event is encrypted by the verified sender
 #define DBEF_BOOKMARK  0x0200  // event is bookmarked
+#define DBEF_JSON      0x0400  // event's body is a JSON structure
 
 struct DBEVENTINFO
 {
