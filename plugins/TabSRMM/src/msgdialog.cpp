@@ -934,7 +934,7 @@ void CMsgDialog::onClick_Quote(CCtrlButton*)
 		if (szQuoted.IsEmpty()) {
 			DB::EventInfo dbei(hDBEvent);
 			if (dbei)
-				szQuoted = Srmm_Quote(ptrW(DbEvent_GetTextW(&dbei)), iOutputWidth);
+				szQuoted = Srmm_Quote(ptrW(dbei.getText()), iOutputWidth);
 		}
 	}
 
@@ -2337,10 +2337,6 @@ INT_PTR CMsgDialog::DlgProc(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	case DM_OWNNICKCHANGED:
 		GetMyNick();
 		return 0;
-
-	case WM_KEYDOWN:
-		SetFocus(m_message.GetHwnd());
-		break;
 
 	case WM_SETFOCUS:
 		if (CMimAPI::m_shutDown)

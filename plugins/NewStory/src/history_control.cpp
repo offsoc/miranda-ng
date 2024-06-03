@@ -105,7 +105,7 @@ void NewstoryListData::OnResize(int newWidth, int newHeight)
 
 	if (newHeight != cachedWindowHeight) {
 		cachedWindowHeight = newHeight;
-		FixScrollPosition(true);
+		FixScrollPosition();
 		bDraw = true;
 	}
 
@@ -324,15 +324,17 @@ void NewstoryListData::CopyUrl()
 
 class CDeleteEventsDlg : public CDlgBase
 {
+	int m_iNumEvents;
 	MCONTACT m_hContact;
 	CCtrlCheck chkDelHistory, chkForEveryone;
 
 public:
 	bool bDelHistory = false, bForEveryone = false;
 
-	CDeleteEventsDlg(MCONTACT hContact) :
+	CDeleteEventsDlg(MCONTACT hContact, int nEvents) :
 		CDlgBase(g_plugin, IDD_EMPTYHISTORY),
 		m_hContact(hContact),
+		m_iNumEvents(nEvents),
 		chkDelHistory(this, IDC_DELSERVERHISTORY),
 		chkForEveryone(this, IDC_BOTH)
 	{
@@ -350,6 +352,11 @@ public:
 		bool bEnabled = bDelHistory && bForEveryone;
 		chkForEveryone.SetState(!bEnabled);
 		chkForEveryone.Enable(bEnabled);
+
+		if (m_iNumEvents > 1) {
+			CMStringW wszText(FORMAT, TranslateT("Do you really want to delete selected items (%d)?"), m_iNumEvents);
+			SetDlgItemTextW(m_hwnd, IDC_TOPLINE, wszText);
+		}
 
 		LOGFONT lf;
 		HFONT hFont = (HFONT)SendDlgItemMessage(m_hwnd, IDOK, WM_GETFONT, 0, 0);
@@ -377,37 +384,43 @@ public:
 
 void NewstoryListData::DeleteItems(void)
 {
-	CDeleteEventsDlg dlg(m_hContact);
-	if (IDOK != dlg.DoModal())
-		return;
+	int nSelected = 0;
+	for (int i = totalCount - 1; i >= 0; i--)
+		if (GetItem(i)->m_bSelected)
+			nSelected++;
 
-	g_plugin.bDisableDelete = true;
+	CDeleteEventsDlg dlg(m_hContact, nSelected);
+	if (IDOK == dlg.DoModal()) {
+		g_plugin.bDisableDelete = true;
 
-	int firstSel = -1, flags = 0;
-	if (dlg.bDelHistory)
-		flags |= CDF_DEL_HISTORY;
-	if (dlg.bForEveryone)
-		flags |= CDF_FOR_EVERYONE;
+		int firstSel = -1, flags = 0;
+		if (dlg.bDelHistory)
+			flags |= CDF_DEL_HISTORY;
+		if (dlg.bForEveryone)
+			flags |= CDF_FOR_EVERYONE;
 
-	for (int i = totalCount - 1; i >= 0; i--) {
-		auto *p = GetItem(i);
-		if (!p->m_bSelected)
-			continue;
+		for (int i = totalCount - 1; i >= 0; i--) {
+			auto *p = GetItem(i);
+			if (!p->m_bSelected)
+				continue;
 
-		if (p->dbe.getEvent())
-			db_event_delete(p->dbe.getEvent(), flags);
-		items.remove(i);
-		totalCount--;
-		firstSel = i;
+			if (p->dbe.getEvent())
+				db_event_delete(p->dbe.getEvent(), flags);
+			items.remove(i);
+			totalCount--;
+			firstSel = i;
+		}
+
+		g_plugin.bDisableDelete = false;
+
+		if (firstSel != -1) {
+			SetCaret(firstSel, false);
+			SetSelection(firstSel, firstSel);
+			FixScrollPosition(true);
+		}
 	}
 
-	g_plugin.bDisableDelete = false;
-
-	if (firstSel != -1) {
-		SetCaret(firstSel, false);
-		SetSelection(firstSel, firstSel);
-		FixScrollPosition(true);
-	}
+	::SetFocus(m_hwnd);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -543,7 +556,7 @@ CMStringW NewstoryListData::GatherSelected(bool bTextOnly)
 
 		RemoveBbcodes(wszText);
 		ret.Append(wszText);
-		ret.Append(L"\r\n");
+		ret.Append(L"\r\n\r\n");
 	}
 
 	return ret;
@@ -843,6 +856,7 @@ void NewstoryListData::Quote()
 {
 	if (pMsgDlg) {
 		CMStringW wszText(GatherSelected(true));
+		wszText.TrimRight();
 		RemoveBbcodes(wszText);
 		pMsgDlg->SetMessageText(Srmm_Quote(wszText));
 
@@ -1200,12 +1214,12 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		InvalidateRect(hwnd, 0, FALSE);
 		break;
 
-	case UM_ADDEVENT:
+	case UM_ADD_EVENT:
 		if (data->pMsgDlg == nullptr)
 			data->AddEvent(wParam, lParam, 1);
 		break;
 
-	case UM_EDITEVENT:
+	case UM_EDIT_EVENT:
 		idx = data->items.find(lParam);
 		if (idx != -1) {
 			auto *p = data->GetItem(idx);
@@ -1215,7 +1229,7 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		}
 		break;
 
-	case UM_REMOVEEVENT:
+	case UM_REMOVE_EVENT:
 		idx = data->items.find(lParam);
 		if (idx != -1) {
 			data->items.remove(idx);
@@ -1303,6 +1317,7 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		return DLGC_WANTMESSAGE;
 
 	case WM_KEYDOWN:
+	case WM_KEYUP:
 		{
 			bool isShift = (GetKeyState(VK_SHIFT) & 0x80) != 0;
 			bool isCtrl = (GetKeyState(VK_CONTROL) & 0x80) != 0;
@@ -1311,7 +1326,11 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 				data->selStart = data->caret;
 			else if (data->bWasShift && !isShift)
 				data->selStart = -1;
+
 			data->bWasShift = isShift;
+
+			if (msg == WM_KEYUP)
+				break;
 
 			switch (wParam) {
 			case VK_UP:
@@ -1319,6 +1338,8 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 					data->EventUp();
 				else
 					data->LineUp();
+				if (isShift)
+					data->SetSelection(data->scrollTopItem, data->caret);
 				break;
 
 			case VK_DOWN:
@@ -1326,6 +1347,8 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 					data->EventDown();
 				else
 					data->LineDown();
+				if (isShift)
+					data->SetSelection(data->scrollTopItem, data->caret);
 				break;
 
 			case VK_PRIOR:
@@ -1335,6 +1358,8 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 					data->EventPageUp();
 				else
 					data->PageUp();
+				if (isShift)
+					data->SetSelection(data->scrollTopItem, data->caret);
 				break;
 
 			case VK_NEXT:
@@ -1344,14 +1369,20 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 					data->EventPageDown();
 				else
 					data->PageDown();
+				if (isShift)
+					data->SetSelection(data->scrollTopItem, data->caret);
 				break;
 
 			case VK_HOME:
 				data->ScrollTop();
+				if (isShift)
+					data->SetSelection(0, data->caret);
 				break;
 
 			case VK_END:
 				data->ScrollBottom();
+				if (isShift)
+					data->SetSelection(data->caret, data->totalCount);
 				break;
 
 			case VK_F2:

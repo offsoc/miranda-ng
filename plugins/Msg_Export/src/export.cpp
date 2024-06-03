@@ -297,9 +297,12 @@ static bool ExportDBEventInfo(MCONTACT hContact, HANDLE hFile, const wstring &sF
 	}
 
 	if (dbei.szUserId && Contact::IsGroupChat(hContact))
-		if (auto *si = Chat_Find(hContact, szProto))
+		if (auto *si = Chat_Find(hContact, szProto)) {
 			if (auto *pUser = g_chatApi.UM_FindUser(si, Utf2T(dbei.szUserId)))
 				sRemoteUser = pUser->pszNick;
+			else
+				sRemoteUser = Utf2T(dbei.szUserId);
+		}
 
 	// Get time stamp
 	CMStringW output;
@@ -318,14 +321,14 @@ static bool ExportDBEventInfo(MCONTACT hContact, HANDLE hFile, const wstring &sF
 
 		switch (dbei.eventType) {
 		case EVENTTYPE_MESSAGE:
-			output += ptrW(DbEvent_GetTextW(&dbei));
+			output += ptrW(dbei.getText());
 			break;
 
 		case EVENTTYPE_FILE:
 			{
 				DB::FILE_BLOB blob(dbei);
 				if (!blob.isCompleted())
-					return false;
+					return true;
 
 				output.Append(L"File: ");
 				bWriteIndentedToFile(output, nIndent, blob.getName());

@@ -2,8 +2,8 @@
 
 #define DBKEY_ID "id"
 #define DBKEY_COMPAT "Compatibility"
+#define DBKEY_OWNER  "OwnerId"
 #define DBKEY_THREAD "ThreadId"
-#define DBKEY_LAST_MSG "LastMessageId"
 #define DBKEY_AUTHORIZED "Authorized"
 
 #define DBKEY_AVATAR_HASH "AvatarHash"
@@ -100,7 +100,7 @@ struct TG_USER : public MZeroedObject
 
 	int64_t   id, chatId = -1;
 	MCONTACT  hContact;
-	int       folderId = -1;
+	int       folderId = -1, nHistoryChunks;
 	bool      isGroupChat, isBot, isForum, bLoadMembers, bStartChat, bInited;
 	CMStringA szAvatarHash;
 	CMStringW wszNick, wszFirstName, wszLastName;
@@ -232,7 +232,6 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	void OnEndSession(td::ClientManager::Response &response);
 	void OnGetFileInfo(td::ClientManager::Response &response, void *pUserInfo);
 	void OnGetFileLink(td::ClientManager::Response &response);
-	void OnGetForumTopics(td::ClientManager::Response &response);
 	void OnGetHistory(td::ClientManager::Response &response, void *pUserInfo);
 	void OnGetSessions(td::ClientManager::Response &response, void *pUserInfo);
 	void OnKillSession(td::ClientManager::Response &response, void *pUserInfo);
@@ -274,6 +273,7 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	void ProcessMarkRead(TD::updateChatReadInbox *pObj);
 	void ProcessMessage(const TD::message *pMsg);
 	void ProcessMessageContent(TD::updateMessageContent *pObj);
+	void ProcessMessageReactions(TD::updateMessageInteractionInfo *pObj);
 	void ProcessOption(TD::updateOption *pObj);
 	void ProcessStatus(TD::updateUserStatus *pObj);
 	void ProcessSuperGroup(TD::updateSupergroup *pObj);
@@ -354,6 +354,7 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	void     SetId(MCONTACT, int64_t id, const char *pszSetting = DBKEY_ID);
 
 	MCONTACT GetRealContact(const TG_USER *pUser);
+	void     RemoveFromClist(TG_USER *pUser);
 
 	// Menus
 	HGENMENU hmiForward, hmiReaction;

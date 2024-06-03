@@ -533,8 +533,7 @@ __forceinline MCONTACT DbGetAuthEventContact(DBEVENTINFO *dbei)
 // Function returns a pointer to a string in the required format.
 // This string should be freed by a call of mir_free
 
-EXTERN_C MIR_APP_DLL(char*) DbEvent_GetTextA(const DBEVENTINFO *dbei, int codepage);
-EXTERN_C MIR_APP_DLL(wchar_t*) DbEvent_GetTextW(const DBEVENTINFO *dbei);
+EXTERN_C MIR_APP_DLL(wchar_t*) DbEvent_GetText(const DBEVENTINFO *dbei);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Retrieves the event's icon
@@ -703,6 +702,8 @@ __inline uint32_t DBGetContactSettingRangedDword(MCONTACT hContact, const char *
 
 #endif
 
+class JSONNode;
+
 namespace DB
 {
 	MIR_APP_DLL(bool) IsDuplicateEvent(MCONTACT hContact, DBEVENTINFO &dbei);
@@ -714,6 +715,7 @@ namespace DB
 	{
 		bool m_bValid;
 		MEVENT m_hEvent;
+		JSONNode *m_json = 0;
 
 	public:
 		explicit EventInfo();
@@ -725,6 +727,7 @@ namespace DB
 		void unload();
 		void wipeNotify();
 
+		__forceinline JSONNode& getJson() const { return *m_json; }
 		__forceinline MEVENT getEvent() const { return m_hEvent; }
 		__forceinline operator bool() const { return m_bValid; }
 
@@ -733,6 +736,13 @@ namespace DB
 		bool isAlertable() const; // should raise SRMM window
 
 		wchar_t* getString(const char *str) const;
+		wchar_t* getText() const;
+
+		void addReaction(const char *emoji);
+		void delReaction(const char *emoji);
+
+		void flushJson();
+		JSONNode& setJson();
 	};
 
 	/////////////////////////////////////////////////////////////////////////////////////////

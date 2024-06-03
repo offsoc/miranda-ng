@@ -382,7 +382,7 @@ void CMsgDialog::onClick_Quote(CCtrlButton*)
 			return;
 
 		if (dbei.isSrmm()) {
-			ptrW wszText(DbEvent_GetTextW(&dbei));
+			ptrW wszText(dbei.getText());
 			SetMessageText(Srmm_Quote(wszText));
 		}
 	}
@@ -944,10 +944,6 @@ INT_PTR CMsgDialog::DlgProc(UINT msg, WPARAM wParam, LPARAM lParam)
 		if (g_dat.hFocusWnd == m_hwnd)
 			SetFocus(m_message.GetHwnd());
 		return TRUE;
-
-	case WM_KEYDOWN:
-		SetFocus(m_message.GetHwnd());
-		break;
 
 	case WM_SETFOCUS:
 		m_pParent->ActivateChild(this);

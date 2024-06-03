@@ -159,7 +159,7 @@ class CHistoryDlg : public CDlgBase
 			if (!dbei)
 				continue;
 
-			ptrW pwszText(DbEvent_GetTextW(&dbei));
+			ptrW pwszText(dbei.getText());
 			if (!mir_wstrlen(pwszText))
 				continue;
 
@@ -219,18 +219,10 @@ class CHistoryDlg : public CDlgBase
 
 	void UpdateTitle()
 	{
-		switch (m_hContact) {
-		case INVALID_CONTACT_ID:
+		if (m_hContact == INVALID_CONTACT_ID)
 			SetWindowText(m_hwnd, TranslateT("Global history search"));
-			break;
-
-		case 0:
-			SetWindowText(m_hwnd, TranslateT("System history"));
-			break;
-
-		default:
+		else
 			SetWindowText(m_hwnd, TplFormatString(TPL_TITLE, m_hContact, 0));
-		}
 	}
 
 	void BuildBookmarksList()
@@ -793,14 +785,9 @@ public:
 
 	void onClick_Delete(CCtrlButton *)
 	{
-		if (!CallService(MS_HISTORY_EMPTY, m_hContact, 0)) {
-			m_histCtrl->Clear();
-
-			UpdateTitle();
-			BuildTimeTree();
-		}
+		m_histCtrl->DeleteItems();
 	}
-
+	
 	void onClick_TimeTree(CCtrlButton *)
 	{
 		if (m_dwOptions & WND_OPT_TIMETREE)
@@ -958,6 +945,15 @@ public:
 		case ID_LOGOPTIONS_TEMPLATES:
 			g_plugin.openOptions(L"History", L"NewStory", L"Templates");
 			break;
+
+		case ID_LOGOPTIONS_EMPTYHISTORY:
+			if (!CallService(MS_HISTORY_EMPTY, m_hContact, 0)) {
+				m_histCtrl->Clear();
+
+				UpdateTitle();
+				BuildTimeTree();
+			}
+			break;
 		}
 		PostMessage(m_hwnd, WM_SIZE, 0, 0);
 	}
@@ -994,7 +990,7 @@ public:
 
 		if (m_bInitialized)
 			if (showFlags & HIST_AUTO_FILTER)
-				PostMessage(m_hwnd, UM_REBUILDLIST, 0, 0);
+				PostMessage(m_hwnd, UM_REBUILD_LIST, 0, 0);
 	}
 
 	void onChange_Splitter(CSplitter *)
@@ -1107,7 +1103,7 @@ public:
 				}
 			}
 			if (doFilter)
-				PostMessage(m_hwnd, UM_REBUILDLIST, 0, 0);
+				PostMessage(m_hwnd, UM_REBUILD_LIST, 0, 0);
 			break;*/
 
 		case UM_BOOKMARKS:

@@ -52,6 +52,8 @@ static handlers[] = // these structures must me sorted alphabetically
 	{ L"MESSAGE_ACK", &CDiscordProto::OnCommandMessageAck },
 	{ L"MESSAGE_CREATE", &CDiscordProto::OnCommandMessageCreate },
 	{ L"MESSAGE_DELETE", &CDiscordProto::OnCommandMessageDelete },
+	{ L"MESSAGE_REACTION_ADD", &CDiscordProto::OnCommandMessageAddReaction },
+	{ L"MESSAGE_REACTION_REMOVE", &CDiscordProto::OnCommandMessageRemoveReaction },
 	{ L"MESSAGE_UPDATE", &CDiscordProto::OnCommandMessageUpdate },
 
 	{ L"PRESENCE_UPDATE", &CDiscordProto::OnCommandPresence },
@@ -499,12 +501,6 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 			if (bOurMessage)
 				dbei.flags |= DBEF_READ | DBEF_SENT;
 
-			if (dbei) {
-				ptrW wszOldText(DbEvent_GetTextW(&dbei));
-				if (wszOldText)
-					wszText.Insert(0, wszOldText);
-			}
-
 			if (auto &nReply = pRoot["message_reference"]) {
 				_i64toa(::getId(nReply["message_id"]), szReplyId, 10);
 				dbei.szReplyId = szReplyId;
@@ -515,6 +511,7 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 			dbei.timestamp = (uint32_t)StringToDate(pRoot["timestamp"].as_mstring());
 			dbei.szId = szMsgId;
 			replaceStr(dbei.pBlob, mir_utf8encodeW(wszText));
+			dbei.cbBlob = (int)mir_strlen(dbei.pBlob);
 
 			if (!pUser->bIsPrivate || pUser->bIsGroup) {
 				dbei.szUserId = szUserId;
@@ -525,6 +522,33 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 				db_event_edit(dbei.getEvent(), &dbei, true);
 			else
 				ProtoChainRecvMsg(pUser->hContact, dbei);
+		}
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// message reactions
+
+void CDiscordProto::OnCommandMessageAddReaction(const JSONNode &pRoot)
+{
+	std::string msgId(pRoot["message_id"].as_string());
+	if (MEVENT hEvent = db_event_getById(m_szModuleName, msgId.c_str())) {
+		DB::EventInfo dbei(hEvent);
+		if (dbei) {
+			dbei.addReaction(pRoot["emoji"]["name"].as_string().c_str());
+			db_event_edit(hEvent, &dbei, true);
+		}
+	}
+}
+
+void CDiscordProto::OnCommandMessageRemoveReaction(const JSONNode &pRoot)
+{
+	CMStringA msgId(pRoot["message_id"].as_mstring());
+	if (MEVENT hEvent = db_event_getById(m_szModuleName, msgId.c_str())) {
+		DB::EventInfo dbei(hEvent);
+		if (dbei) {
+			dbei.delReaction(pRoot["emoji"]["name"].as_string().c_str());
+			db_event_edit(hEvent, &dbei, true);
 		}
 	}
 }

@@ -59,7 +59,7 @@ bool Filter::check(ItemData *item) const
 		if (!item->fetch())
 			return false;
 
-		return CheckFilter(ptrW(DbEvent_GetTextW(&item->dbe)), text);
+		return CheckFilter(ptrW(item->dbe.getText()), text);
 	}
 
 	return true;
@@ -76,10 +76,12 @@ ItemData::ItemData()
 
 ItemData::~ItemData()
 {
-	mir_free(qtext);
-	mir_free(wtext);
-	if (dbe.szReplyId)
-		mir_free((char*)dbe.szReplyId);
+	replaceStrW(qtext, 0);
+	replaceStrW(wtext, 0);
+	if (dbe.szReplyId) {
+		mir_free((char *)dbe.szReplyId);
+		dbe.szReplyId = 0;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -370,7 +372,8 @@ void ItemData::load(bool bLoadAlways)
 	switch (dbe.eventType) {
 	case EVENTTYPE_MESSAGE:
 		pOwner->MarkRead(this);
-		__fallthrough;
+		wtext = dbe.getText();
+		break;
 
 	case EVENTTYPE_STATUSCHANGE:
 		wtext = mir_utf8decodeW((char *)dbe.pBlob);
@@ -426,7 +429,7 @@ void ItemData::load(bool bLoadAlways)
 		break;
 
 	default:
-		wtext = DbEvent_GetTextW(&dbe);
+		wtext = dbe.getText();
 		break;
 	}
 
@@ -451,7 +454,7 @@ void ItemData::load(bool bLoadAlways)
 				
 				str.AppendFormat(L"%s %s %s:\n", wszTime, wszNick.c_str(), TranslateT("wrote"));
 
-				ptrW wszText(DbEvent_GetTextW(&dbei));
+				ptrW wszText(dbei.getText());
 				if (mir_wstrlen(wszText) > 43)
 					wcscpy(wszText.get() + 40, L"...");
 				str.Append(wszText);
@@ -724,7 +727,8 @@ void HistoryArray::remove(int id)
 	if (offset != HIST_BLOCK_SIZE - 1)
 		memmove(&pPage.data[offset], &pPage.data[offset+1], sizeof(ItemData) * (HIST_BLOCK_SIZE - 1 - offset));
 
-	for (int i = pageNo + 1; i < pages.getCount(); i++) {
+	int nPages = pages.getCount()-1;
+	for (int i = pageNo + 1; i <= nPages; i++) {
 		auto &prev = pages[i - 1], &curr = pages[i];
 		memcpy(&prev.data[HIST_BLOCK_SIZE - 1], curr.data, sizeof(ItemData));
 		memmove(&curr.data, &curr.data[1], sizeof(ItemData) * (HIST_BLOCK_SIZE - 1));
@@ -732,8 +736,11 @@ void HistoryArray::remove(int id)
 	}
 
 	if (iLastPageCounter == 1) {
-		pages.remove(pages.getCount() - 1);
+		pages.remove(nPages);
 		iLastPageCounter = HIST_BLOCK_SIZE;
 	}
-	else iLastPageCounter--;
+	else {
+		iLastPageCounter--;
+		memset(&pages[nPages].data[iLastPageCounter], 0, sizeof(ItemData));
+	}
 }

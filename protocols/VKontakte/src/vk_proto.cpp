@@ -455,7 +455,7 @@ INT_PTR CVkProto::SvcNSExecMenu(WPARAM iCommand, LPARAM pHandle)
 				wszMsg,
 				TranslateT("Mark contacts for forwarding messages"),
 				TranslateT("Mark contacts you want to forward messages"),
-				TranslateT("Enter accompanying messages"),
+				TranslateT("Enter accompanying message"),
 				0
 			);
 
@@ -613,7 +613,7 @@ INT_PTR CVkProto::GetCaps(int type, MCONTACT)
 	switch (type) {
 	case PFLAGNUM_1:
 		return PF1_IM | PF1_CHAT | PF1_SERVERCLIST | PF1_AUTHREQ | PF1_BASICSEARCH
-			| PF1_SEARCHBYNAME | PF1_SEARCHBYEMAIL | PF1_MODEMSG | PF1_FILESEND | PF1_FILERESUME;
+			| PF1_SEARCHBYNAME | PF1_MODEMSG | PF1_FILESEND | PF1_FILERESUME;
 
 	case PFLAGNUM_2:
 		return PF2_ONLINE | PF2_INVISIBLE | PF2_IDLE;

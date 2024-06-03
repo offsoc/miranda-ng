@@ -411,6 +411,18 @@ class CDiscordProto : public PROTO<CDiscordProto>
 	void OnSendTotp(MHttpResponse *, struct AsyncHttpRequest *);
 
 	//////////////////////////////////////////////////////////////////////////////////////
+	// voice
+
+	void InitVoip(bool bEnable);
+
+	INT_PTR __cdecl VoiceCaps(WPARAM, LPARAM);
+	INT_PTR __cdecl VoiceCallCreate(WPARAM, LPARAM);
+	INT_PTR __cdecl VoiceCallAnswer(WPARAM, LPARAM);
+	INT_PTR __cdecl VoiceCallCancel(WPARAM, LPARAM);
+
+	int  __cdecl OnVoiceState(WPARAM, LPARAM);
+
+	//////////////////////////////////////////////////////////////////////////////////////
 	// misc methods
 
 	SnowFlake getId(const char *szName);
@@ -472,16 +484,12 @@ public:
 	INT_PTR __cdecl GetMyAvatar(WPARAM, LPARAM);
 	INT_PTR __cdecl SetMyAvatar(WPARAM, LPARAM);
 
-	INT_PTR __cdecl VoiceCaps(WPARAM, LPARAM);
-
 	//////////////////////////////////////////////////////////////////////////////////////
 	// Events
 
 	int  __cdecl OnOptionsInit(WPARAM, LPARAM);
 	int  __cdecl OnAccountChanged(WPARAM, LPARAM);
 	
-	int  __cdecl OnVoiceState(WPARAM, LPARAM);
-
 	//////////////////////////////////////////////////////////////////////////////////////
 	// dispatch commands
 
@@ -506,6 +514,8 @@ public:
 	void OnCommandMessageCreate(const JSONNode &json);
 	void OnCommandMessageDelete(const JSONNode &json);
 	void OnCommandMessageUpdate(const JSONNode &json);
+	void OnCommandMessageAddReaction(const JSONNode &json);
+	void OnCommandMessageRemoveReaction(const JSONNode &json);
 	void OnCommandMessageAck(const JSONNode &json);
 	void OnCommandPresence(const JSONNode &json);
 	void OnCommandReady(const JSONNode &json);

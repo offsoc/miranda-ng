@@ -202,8 +202,7 @@ Srmm_ModifyIcon @280
 Srmm_RemoveIcon @281
 ExtraIcon_AddIcon @282
 DbEvent_GetIcon @283
-DbEvent_GetTextA @285
-DbEvent_GetTextW @286
+DbEvent_GetText @286
 DbEvent_GetType @287
 DbEvent_RegisterType @288
 Profile_GetNameA @290
@@ -306,6 +305,7 @@ Srmm_FindDialog @406 NONAME
 ??2CSrmmBaseDialog@@SAPAXI@Z @409 NONAME
 ??3CSrmmBaseDialog@@SAXPAX@Z @410 NONAME
 ?isChat@CSrmmBaseDialog@@QBE_NXZ @411 NONAME
+?onContextMenu@CSrmmBaseDialog@@IAEXPAUCContextMenuPos@@@Z @412 NONAME
 ?RunUserMenu@CSrmmBaseDialog@@IAEXPAUHWND__@@PAUUSERINFO@@ABUtagPOINT@@@Z @414 NONAME
 ?ClearLog@CSrmmBaseDialog@@QAEXXZ @415 NONAME
 ?CloseTab@CSrmmBaseDialog@@UAEXXZ @416 NONAME
@@ -971,3 +971,9 @@ _Netlib_DownloadFile@20 @1099 NONAME
 ?GetPreviewPath@PROTO_INTERFACE@@QBE?AV?$CMStringT@_WV?$ChTraitsCRT@_W@@@@XZ @1107 NONAME
 g_hevEventDelivered @1108 NONAME
 g_hevEventSetJson @1109 NONAME
+?getJson@EventInfo@DB@@QBEAAVJSONNode@@XZ @1110 NONAME
+?setJson@EventInfo@DB@@QAEAAVJSONNode@@XZ @1111 NONAME
+?flushJson@EventInfo@DB@@QAEXXZ @1112 NONAME
+?addReaction@EventInfo@DB@@QAEXPBD@Z @1113 NONAME
+?delReaction@EventInfo@DB@@QAEXPBD@Z @1114 NONAME
+?getText@EventInfo@DB@@QBEPA_WXZ @1115 NONAME
