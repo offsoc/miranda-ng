@@ -34,12 +34,6 @@ wstring g_sExportDir;
 // The default filename. Used if no other file name is specified in DB.
 wstring g_sDefaultFile;
 
-// path used then %dbpath% is used in export file path
-wstring g_sDBPath = pszDbPathError;
-
-// path to miranda exe file used when to avoid relative paths
-wstring g_sMirandaPath = pszDbPathError;
-
 // Used to store the width of the user name for a file.
 // if a file contains events from many users the one user name
 // may be shorter. so to make all event have the same first
@@ -224,52 +218,28 @@ wchar_t* GetMyOwnNick(MCONTACT hContact)
 }
 
 /////////////////////////////////////////////////////////////////////
-// Member Function : bReadMirandaDirAndPath
-// Type            : Global
-// Parameters      : None
-// Returns         : void
-// Description     : Used to set the internal path.
-//                   Handles the reading from the mirandaboot.ini to get the %dbpath%
-
-bool bReadMirandaDirAndPath()
-{
-	wchar_t szDBPath[MAX_PATH], tmp[MAX_PATH];
-	wcsncpy_s(szDBPath, pszDbPathError, _TRUNCATE);
-	PathToAbsoluteW(L"miranda32.exe", tmp);
-	g_sMirandaPath = tmp;
-	g_sMirandaPath.erase(g_sMirandaPath.find_last_of(L"\\"));
-	Profile_GetPathW(MAX_PATH, szDBPath);
-	g_sDBPath = szDBPath;
-	Profile_GetNameW(MAX_PATH, szDBPath);
-	g_sDBPath.append(L"\\").append(szDBPath);
-	g_sDBPath.erase(g_sDBPath.size() - 4);
-	return true;
-}
-
-/////////////////////////////////////////////////////////////////////
 // Member Function : ReplaceDBPath
 // Type            : Global
 // Parameters      : sRet - ?
 
 void ReplaceDBPath(wstring &sRet)
 {
-	ReplaceAll(sRet, L"%dbpath%", g_sDBPath);
-	// Try to figure out if it is a relative path ( ..\..\MsgExport\ )
-	if (sRet.size() <= 2 || !(sRet[1] == ':' ||
-		(sRet[0] == '\\' && sRet[1] == '\\'))) {
-		// Relative path
-		// we will prepend the mirande exe path to avoid problems 
-		// if the current directory changes ( User receives a file )
-		sRet = g_sMirandaPath + sRet;
-	}
+	ReplaceAll(sRet, L"%dbpath%", VARSW(L"%miranda_userdata%"));
 }
-
 
 /////////////////////////////////////////////////////////////////////
 // Member Function : GetFilePathFromUser
 // Type            : Global
 // Parameters      : hContact - Handle to user
 // Returns         : string containing the complete file name and path
+
+static bool CompareNoExt(const wstring &s1, const wstring &s2)
+{
+	wstring t1(s1), t2(s2);
+	ReplaceAll(t1, L".txt.json", L".txt");
+	ReplaceAll(t2, L".txt.json", L".txt");
+	return t1 == t2;
+}
 
 wstring GetFilePathFromUser(MCONTACT hContact)
 {
@@ -288,7 +258,7 @@ wstring GetFilePathFromUser(MCONTACT hContact)
 
 	// Previous file name check to see if it has changed !!
 	wstring sPrevFileName = _DBGetStringW(hContact, MODULENAME, "PrevFileName", L"");
-	if (sNoDBPath != sPrevFileName) {
+	if (!CompareNoExt(sNoDBPath, sPrevFileName)) {
 		if (!sPrevFileName.empty()) {
 			ReplaceDBPath(sPrevFileName);
 
@@ -299,9 +269,7 @@ wstring GetFilePathFromUser(MCONTACT hContact)
 
 			// file name has changed
 			if (g_enRenameAction != eDANothing) {
-
-				// we can not use FILE_SHARE_DELETE because this is not supported by 
-				// win 98 / ME 
+				// we can not use FILE_SHARE_DELETE because this is not supported by win 98 / ME 
 				HANDLE hPrevFile = CreateFile(sPrevFileName.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 				if (hPrevFile != INVALID_HANDLE_VALUE) {
 					CloseHandle(hPrevFile);

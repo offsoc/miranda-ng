@@ -37,6 +37,11 @@ static int compareGuilds(const CDiscordGuild *p1, const CDiscordGuild *p2)
 	return compareInt64(p1->m_id, p2->m_id);
 }
 
+static int compareCalls(const CDiscordVoiceCall *p1, const CDiscordVoiceCall *p2)
+{
+	return compareInt64(p1->channelId, p2->channelId);
+}
+
 CDiscordProto::CDiscordProto(const char *proto_name, const wchar_t *username) :
 	PROTO<CDiscordProto>(proto_name, username),
 	m_impl(*this),
@@ -46,7 +51,7 @@ CDiscordProto::CDiscordProto(const char *proto_name, const wchar_t *username) :
 	arGuilds(1, compareGuilds),
 	arMarkReadQueue(1, compareUsers),
 	arOwnMessages(1, compareMessages),
-	arVoiceCalls(1),
+	arVoiceCalls(1, compareCalls),
 
 	m_wszEmail(this, "Email", L""),
 	m_wszDefaultGroup(this, "GroupName", DB_KEYVAL_GROUP),
@@ -66,6 +71,7 @@ CDiscordProto::CDiscordProto(const char *proto_name, const wchar_t *username) :
 	CreateProtoService(PS_VOICE_CALL, &CDiscordProto::VoiceCallCreate);
 	CreateProtoService(PS_VOICE_DROPCALL, &CDiscordProto::VoiceCallCancel);
 	CreateProtoService(PS_VOICE_ANSWERCALL, &CDiscordProto::VoiceCallAnswer);
+	CreateProtoService(PS_VOICE_CALL_CONTACT_VALID, &CDiscordProto::VoiceCanCall);
 
 	CreateProtoService(PS_MENU_REQAUTH, &CDiscordProto::RequestFriendship);
 
@@ -87,21 +93,6 @@ CDiscordProto::CDiscordProto(const char *proto_name, const wchar_t *username) :
 
 	// database
 	db_set_resident(m_szModuleName, "XStatusMsg");
-
-	// custom events
-	DBEVENTTYPEDESCR dbEventType = {};
-	dbEventType.module = m_szModuleName;
-	dbEventType.flags = DETF_HISTORY | DETF_MSGWINDOW;
-
-	dbEventType.eventType = EVENT_INCOMING_CALL;
-	dbEventType.descr = Translate("Incoming call");
-	dbEventType.eventIcon = g_plugin.getIconHandle(IDI_VOICE_CALL);
-	DbEvent_RegisterType(&dbEventType);
-
-	dbEventType.eventType = EVENT_CALL_FINISHED;
-	dbEventType.descr = Translate("Call ended");
-	dbEventType.eventIcon = g_plugin.getIconHandle(IDI_VOICE_ENDED);
-	DbEvent_RegisterType(&dbEventType);
 
 	// Groupchat initialization
 	GCREGISTER gcr = {};
@@ -159,8 +150,8 @@ void CDiscordProto::OnModulesLoaded()
 		switch (getByte(hContact, "ChatRoom")) {
 		case 2: // guild
 			delSetting(hContact, DB_KEY_CHANNELID);
-			if (getDword(hContact, "EnableSync", -1) == -1)
-				setDword(hContact, "EnableSync", 1);
+			surelyGetBool(hContact, DB_KEY_ENABLE_HIST);
+			surelyGetBool(hContact, DB_KEY_ENABLE_SYNC);
 			break;
 
 		case 1: // group chat

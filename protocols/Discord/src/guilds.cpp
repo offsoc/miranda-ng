@@ -29,6 +29,18 @@ void CDiscordProto::ProcessPresence(const JSONNode &root)
 		return;
 	}
 
+	CMStringA szVer("Discord");
+	for (auto &it : root["client_status"]) {
+		if (!mir_strcmp(it.name(), "web"))
+			szVer += " (website)";
+		else if (!mir_strcmp(it.name(), "mobile"))
+			szVer += " (mobile)";
+	}
+	if (szVer.GetLength() > 7)
+		setString(pUser->hContact, "MirVer", szVer);
+	else
+		delSetting(pUser->hContact, "MirVer");
+
 	setWord(pUser->hContact, "Status", StrToStatus(root["status"].as_mstring()));
 
 	CheckAvatarChange(pUser->hContact, root["user"]["avatar"].as_mstring());
@@ -126,6 +138,7 @@ void CDiscordProto::ProcessGuild(const JSONNode &pRoot)
 	pGuild->pParentSi = (SESSION_INFO*)si;
 	pGuild->m_hContact = si->hContact;
 	setId(pGuild->m_hContact, DB_KEY_CHANNELID, guildId);
+	pGuild->m_bEnableHistory = surelyGetBool(pGuild->m_hContact, DB_KEY_ENABLE_HIST);
 
 	Chat_Control(si, WINDOW_HIDDEN);
 	Chat_Control(si, SESSION_ONLINE);
@@ -135,7 +148,7 @@ void CDiscordProto::ProcessGuild(const JSONNode &pRoot)
 
 	BuildStatusList(pGuild, si);
 
-	if (!pGuild->m_bSynced && getByte(si->hContact, "EnableSync"))
+	if (!pGuild->m_bSynced && getByte(si->hContact, DB_KEY_ENABLE_SYNC))
 		GatewaySendGuildInfo(pGuild);
 
 	// store all guild members
@@ -160,6 +173,9 @@ void CDiscordProto::ProcessGuild(const JSONNode &pRoot)
 			gm->iStatus = StrToStatus(it["status"].as_mstring());
 	}
 
+	for (auto &it : pRoot["voice_states"])
+		pGuild->arVoiceStates.insert(new CDiscordVoiceState(it));
+
 	for (auto &it : pGuild->arChatUsers)
 		AddGuildUser(pGuild, *it);
 
@@ -177,6 +193,7 @@ CDiscordUser* CDiscordProto::ProcessGuildChannel(CDiscordGuild *pGuild, const JS
 	SnowFlake channelId = _wtoi64(wszChannelId);
 	CMStringW wszName = pch["name"].as_mstring();
 	CDiscordUser *pUser;
+	bool bIsVoice = false;
 
 	// filter our all channels but the text ones
 	switch (pch["type"].as_int()) {
@@ -201,6 +218,8 @@ CDiscordUser* CDiscordProto::ProcessGuildChannel(CDiscordGuild *pGuild, const JS
 		return pUser;
 
 	case 2: // voice channel
+		bIsVoice = true;
+		__fallthrough;
 
 	case 0: // text channel
 		// check permissions to enter the channel
@@ -227,6 +246,7 @@ CDiscordUser* CDiscordProto::ProcessGuildChannel(CDiscordGuild *pGuild, const JS
 			pUser->wszChannelName = pGuild->m_wszName + L"#" + wszName;
 		pUser->wszTopic = pch["topic"].as_mstring();
 		pUser->pGuild = pGuild;
+		pUser->bIsVoice = bIsVoice;
 		pUser->lastMsgId = ::getId(pch["last_message_id"]);
 		pUser->parentId = ::getId(pch["parent_id"]);
 		return pUser;
@@ -350,15 +370,23 @@ static int compareChatUsers(const CDiscordGuildMember *p1, const CDiscordGuildMe
 	return compareInt64(p1->userId, p2->userId);
 }
 
+static int compareVoiceState(const CDiscordVoiceState *p1, const CDiscordVoiceState *p2)
+{
+	return compareInt64(p1->m_userId, p2->m_userId);
+}
+
 CDiscordGuild::CDiscordGuild(SnowFlake _id) :
 	m_id(_id),
+	arRoles(10, compareRoles),
 	arChannels(10, compareUsers),
 	arChatUsers(30, compareChatUsers),
-	arRoles(10, compareRoles)
+	arVoiceStates(10, compareVoiceState)
 {}
 
 CDiscordGuild::~CDiscordGuild()
-{}
+{
+	delete pVoiceCall;
+}
 
 CDiscordUser::~CDiscordUser()
 {

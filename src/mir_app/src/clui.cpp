@@ -195,7 +195,7 @@ public:
 
 	void onChange_Server(CCtrlCheck *pButton)
 	{
-		chkForEveryone.Enable(pButton->IsChecked());
+		chkForEveryone.Enable(pButton->IsChecked() && bForEveryone);		
 	}
 };
 
@@ -236,6 +236,9 @@ static INT_PTR MenuItem_DeleteContact(WPARAM hContact, LPARAM lParam)
 			return 0;
 		}
 	}
+
+	if (options & CDF_DEL_HISTORY)
+		CallContactService(hContact, PS_EMPTY_SRV_HISTORY, hContact, options);
 
 	db_delete_contact(hContact, options);
 	return 0;

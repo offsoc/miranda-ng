@@ -1,8 +1,5 @@
 #pragma once
 
-#define EVENT_INCOMING_CALL 10001
-#define EVENT_CALL_FINISHED 10002
-
 enum Permission : uint64_t
 {
 	CREATE_INVITE      = (1ll << 0),  // Allows creation of instant invites
@@ -136,6 +133,7 @@ struct CDiscordUser : public MZeroedObject
 	SnowFlake parentId;
 	bool      bIsPrivate;
 	bool      bIsGroup;
+	bool      bIsVoice;
 	bool      bSynced;
 
 	struct CDiscordGuild *pGuild;
@@ -146,6 +144,35 @@ struct CDiscordUser : public MZeroedObject
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+struct CDiscordVoiceState : public MZeroedObject
+{
+	explicit CDiscordVoiceState(const JSONNode &node);
+
+	SnowFlake m_userId, m_channelId;
+	CMStringA m_sessionId;
+
+	union {
+		int m_flags;
+		struct {
+			bool m_bDeaf : 1;      // deafened by the server
+			bool m_bMute : 1;      // muted by the server
+			bool m_bSelfMute : 1;  // locally muted
+			bool m_bSelfDeaf : 1;  // locally deafened
+			bool m_nSelfVideo : 1; // camera enabled
+			bool m_bSuppress : 1;  // user can't speak
+		};
+	};
+};
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+struct CDiscordVoiceCall : public MZeroedObject
+{
+	SnowFlake channelId, guildId;
+	CMStringA szSessionId, szToken, szEndpoint;
+	time_t    startTime;
+};
 
 struct CDiscordGuildMember : public MZeroedObject
 {
@@ -185,24 +212,20 @@ struct CDiscordGuild : public MZeroedObject
 	MCONTACT  m_hContact;
 	MGROUP    m_groupId;
 	bool      m_bSynced = false;
-	
+	bool      m_bEnableHistory = true;
+
 	SESSION_INFO *pParentSi;
 	LIST<CDiscordUser> arChannels;
 	OBJLIST<CDiscordGuildMember> arChatUsers;
 	OBJLIST<CDiscordRole> arRoles; // guild roles
+	OBJLIST<CDiscordVoiceState> arVoiceStates;
+	CDiscordVoiceCall *pVoiceCall;
 
 	uint64_t CalcPermissionOverride(SnowFlake myUserId, const JSONNode &json);
 	void ProcessRole(const JSONNode &json);
 
 	void LoadFromFile();
 	void SaveToFile();
-};
-
-struct CDiscordVoiceCall
-{
-	CMStringA szId;
-	SnowFlake channelId;
-	time_t    startTime;
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -314,6 +337,7 @@ class CDiscordProto : public PROTO<CDiscordProto>
 	void  GatewaySendIdentify(void);
 	void  GatewaySendResume(void);
 	bool  GatewaySendStatus(int iStatus, const wchar_t *pwszStatusText);
+	bool  GatewaySendVoice(JSONNode &node);
 
 	GatewayHandlerFunc GetHandler(const wchar_t*);
 
@@ -342,7 +366,6 @@ class CDiscordProto : public PROTO<CDiscordProto>
 
 	OBJLIST<CDiscordUser> arUsers;
 	OBJLIST<COwnMessage> arOwnMessages;
-	OBJLIST<CDiscordVoiceCall> arVoiceCalls;
 
 	CDiscordUser* FindUser(SnowFlake id);
 	CDiscordUser* FindUser(const wchar_t *pwszUsername, int iDiscriminator);
@@ -361,12 +384,13 @@ class CDiscordProto : public PROTO<CDiscordProto>
 
 	INT_PTR __cdecl OnMenuCopyId(WPARAM, LPARAM);
 	INT_PTR __cdecl OnMenuCreateChannel(WPARAM, LPARAM);
+	INT_PTR __cdecl OnMenuDatabaseHistory(WPARAM, LPARAM);
 	INT_PTR __cdecl OnMenuJoinGuild(WPARAM, LPARAM);
 	INT_PTR __cdecl OnMenuLeaveGuild(WPARAM, LPARAM);
 	INT_PTR __cdecl OnMenuLoadHistory(WPARAM, LPARAM);
 	INT_PTR __cdecl OnMenuToggleSync(WPARAM, LPARAM);
 
-	HGENMENU m_hMenuLeaveGuild, m_hMenuCreateChannel, m_hMenuToggleSync;
+	HGENMENU m_hMenuLeaveGuild, m_hMenuCreateChannel, m_hMenuToggleSync, m_hMenuDatabaseHistory;
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// guilds
@@ -413,14 +437,24 @@ class CDiscordProto : public PROTO<CDiscordProto>
 	//////////////////////////////////////////////////////////////////////////////////////
 	// voice
 
+	mir_cs m_csVoice;
+	OBJLIST<CDiscordVoiceCall> arVoiceCalls;
+
 	void InitVoip(bool bEnable);
+	void TryVoiceStart(CDiscordGuild *pGuild);
+	void VoiceChannelConnect(MCONTACT hContact);
+
+	CDiscordVoiceCall* FindCall(SnowFlake channelId);
 
 	INT_PTR __cdecl VoiceCaps(WPARAM, LPARAM);
+	INT_PTR __cdecl VoiceCanCall(WPARAM, LPARAM);
 	INT_PTR __cdecl VoiceCallCreate(WPARAM, LPARAM);
 	INT_PTR __cdecl VoiceCallAnswer(WPARAM, LPARAM);
 	INT_PTR __cdecl VoiceCallCancel(WPARAM, LPARAM);
 
 	int  __cdecl OnVoiceState(WPARAM, LPARAM);
+	
+	void __cdecl VoiceClientThread(void *);
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// misc methods
@@ -430,6 +464,8 @@ class CDiscordProto : public PROTO<CDiscordProto>
 
 	void setId(const char *szName, SnowFlake iValue);
 	void setId(MCONTACT hContact, const char *szName, SnowFlake iValue);
+
+	bool surelyGetBool(MCONTACT hContact, const char *szSetting);
 
 public:
 	CDiscordProto(const char*,const wchar_t*);
@@ -524,6 +560,8 @@ public:
 	void OnCommandTyping(const JSONNode &json);
 	void OnCommandUserUpdate(const JSONNode &json);
 	void OnCommandUserSettingsUpdate(const JSONNode &json);
+	void OnCommandVoiceServerUpdate(const JSONNode &json);
+	void OnCommandVoiceStateUpdate(const JSONNode &json);
 
 	void OnLoggedIn();
 	void OnLoggedOut();

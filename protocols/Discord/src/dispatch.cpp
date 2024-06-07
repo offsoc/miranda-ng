@@ -67,6 +67,9 @@ static handlers[] = // these structures must me sorted alphabetically
 
 	{ L"USER_SETTINGS_UPDATE", &CDiscordProto::OnCommandUserSettingsUpdate },
 	{ L"USER_UPDATE", &CDiscordProto::OnCommandUserUpdate },
+
+	{ L"VOICE_SERVER_UPDATE", &CDiscordProto::OnCommandVoiceServerUpdate },
+	{ L"VOICE_STATE_UPDATE", &CDiscordProto::OnCommandVoiceStateUpdate },
 };
 
 static int __cdecl pSearchFunc(const void *p1, const void *p2)
@@ -200,30 +203,34 @@ void CDiscordProto::OnCommandChannelUpdated(const JSONNode &pRoot)
 	}
 
 	// if a topic was changed
-	CMStringW wszTopic = pRoot["topic"].as_mstring();
-	Chat_SetStatusbarText(pUser->si, wszTopic);
-	{
-		GCEVENT gce = { pUser->si, GC_EVENT_TOPIC };
-		gce.pszText.w = wszTopic;
-		gce.time = time(0);
-		Chat_Event(&gce);
-	}
-
-	// reset members info for private channels
-	if (pUser->pGuild == nullptr) {
-		CheckAvatarChange(pUser->hContact, pRoot["icon"].as_mstring());
-
-		for (auto &it : pUser->si->arUsers) {
-			SnowFlake userId = _wtoi64(it->pszUID);
-
-			GCEVENT gce = { pUser->si, GC_EVENT_SETSTATUS };
-			gce.pszUID.w = it->pszUID;
-			gce.pszStatus.w = (userId == ownerId) ? L"Owners" : L"Participants";
-			gce.bIsMe = userId == m_ownId;
+	if (auto *si = pUser->si) {
+		CMStringW wszTopic = pRoot["topic"].as_mstring();
+		Chat_SetStatusbarText(si, wszTopic);
+		{
+			GCEVENT gce = { si, GC_EVENT_TOPIC };
+			gce.pszText.w = wszTopic;
 			gce.time = time(0);
 			Chat_Event(&gce);
 		}
+
+		// reset members info for private channels
+		if (!pUser->pGuild) {
+			for (auto &it : si->arUsers) {
+				SnowFlake userId = _wtoi64(it->pszUID);
+
+				GCEVENT gce = { si, GC_EVENT_SETSTATUS };
+				gce.pszUID.w = it->pszUID;
+				gce.pszStatus.w = (userId == ownerId) ? L"Owners" : L"Participants";
+				gce.bIsMe = userId == m_ownId;
+				gce.time = time(0);
+				Chat_Event(&gce);
+			}
+		}
 	}
+	
+	if (!pUser->pGuild)
+		CheckAvatarChange(pUser->hContact, pRoot["icon"].as_mstring());
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -467,6 +474,7 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 	}
 
 	// shift & store LastMsgId field
+	bool bIsChat = Contact::IsGroupChat(pUser->hContact);
 	pUser->lastMsgId = msgId;
 
 	SnowFlake lastId = getId(pUser->hContact, DB_KEY_LASTMSGID); // as stored in a database
@@ -478,7 +486,7 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 
 	COwnMessage ownMsg(::getId(pRoot["nonce"]), 0);
 	COwnMessage *p = arOwnMessages.find(&ownMsg);
-	if (p != nullptr && !Contact::IsGroupChat(pUser->hContact)) { // own message? skip it
+	if (p != nullptr && !bIsChat) { // own message? skip it
 		ProtoBroadcastAck(pUser->hContact, ACKTYPE_MESSAGE, ACKRESULT_SUCCESS, (HANDLE)p->reqId, (LPARAM)szMsgId);
 		debugLogA("skipping own message with nonce=%lld, id=%lld", ownMsg.nonce, msgId);
 	}
@@ -487,42 +495,53 @@ void CDiscordProto::OnCommandMessage(const JSONNode &pRoot, bool bIsNew)
 		if (wszText.IsEmpty())
 			return;
 
-		else {
-			// old message? try to restore it from database
-			bool bOurMessage = userId == m_ownId;
-			MEVENT hOldEvent = (bIsNew) ? 0 : db_event_getById(m_szModuleName, szMsgId);
-
-			const JSONNode &edited = pRoot["edited_timestamp"];
-			if (!edited.isnull())
-				wszText.AppendFormat(L" (%s %s)", TranslateT("edited at"), edited.as_mstring().c_str());
-
-			// if a message has myself as an author, add some flags
-			DB::EventInfo dbei(hOldEvent);
-			if (bOurMessage)
-				dbei.flags |= DBEF_READ | DBEF_SENT;
-
-			if (auto &nReply = pRoot["message_reference"]) {
-				_i64toa(::getId(nReply["message_id"]), szReplyId, 10);
-				dbei.szReplyId = szReplyId;
-			}
-
-			debugLogA("store a message from private user %lld, channel id %lld", pUser->id, pUser->channelId);
-
-			dbei.timestamp = (uint32_t)StringToDate(pRoot["timestamp"].as_mstring());
-			dbei.szId = szMsgId;
-			replaceStr(dbei.pBlob, mir_utf8encodeW(wszText));
-			dbei.cbBlob = (int)mir_strlen(dbei.pBlob);
-
-			if (!pUser->bIsPrivate || pUser->bIsGroup) {
-				dbei.szUserId = szUserId;
-				ProcessChatUser(pUser, userId, pRoot);
-			}
-
-			if (dbei)
-				db_event_edit(dbei.getEvent(), &dbei, true);
-			else
-				ProtoChainRecvMsg(pUser->hContact, dbei);
+		// if we don't store guild's messages, simply push it to a chat
+		if (bIsChat && pUser->pGuild && !pUser->pGuild->m_bEnableHistory) {
+			_A2T wszUID(szUserId);
+			
+			GCEVENT gce = { pUser->si, GC_EVENT_MESSAGE };
+			gce.dwFlags = GCEF_ADDTOLOG;
+			gce.pszUID.w = wszUID;
+			gce.pszText.w = wszText;
+			gce.time = time(0);
+			gce.bIsMe = userId == m_ownId;
+			Chat_Event(&gce);
+			return;
 		}
+
+		// old message? try to restore it from database
+		MEVENT hOldEvent = (bIsNew) ? 0 : db_event_getById(m_szModuleName, szMsgId);
+
+		const JSONNode &edited = pRoot["edited_timestamp"];
+		if (!edited.isnull())
+			wszText.AppendFormat(L" (%s %s)", TranslateT("edited at"), edited.as_mstring().c_str());
+
+		// if a message has myself as an author, add some flags
+		DB::EventInfo dbei(hOldEvent);
+		if (userId == m_ownId)
+			dbei.flags |= DBEF_READ | DBEF_SENT;
+
+		if (auto &nReply = pRoot["message_reference"]) {
+			_i64toa(::getId(nReply["message_id"]), szReplyId, 10);
+			dbei.szReplyId = szReplyId;
+		}
+
+		debugLogA("store a message from private user %lld, channel id %lld", pUser->id, pUser->channelId);
+
+		dbei.timestamp = (uint32_t)StringToDate(pRoot["timestamp"].as_mstring());
+		dbei.szId = szMsgId;
+		replaceStr(dbei.pBlob, mir_utf8encodeW(wszText));
+		dbei.cbBlob = (int)mir_strlen(dbei.pBlob);
+
+		if (!pUser->bIsPrivate || pUser->bIsGroup) {
+			dbei.szUserId = szUserId;
+			ProcessChatUser(pUser, userId, pRoot);
+		}
+
+		if (dbei)
+			db_event_edit(dbei.getEvent(), &dbei, true);
+		else
+			ProtoChainRecvMsg(pUser->hContact, dbei);
 	}
 }
 

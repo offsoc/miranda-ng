@@ -218,25 +218,34 @@ void CVkProto::OnReceiveChatInfo(MHttpResponse *reply, AsyncHttpRequest *pReq)
 			SetChatTitle(cc, jnInfo["title"].as_mstring());
 
 		
-		CMStringW wszValue = jnInfo["photo_100"].as_mstring();
+		CMStringW wszValue = jnInfo["photo"] ? jnInfo["photo"]["photo_100"].as_mstring() : "";
 		if (!wszValue.IsEmpty()) {
 			SetAvatarUrl(cc->m_si->hContact, wszValue);
 			ReloadAvatarInfo(cc->m_si->hContact);
 		}
 
-		if (jnInfo["left"].as_bool() || jnInfo["kicked"].as_bool()) {
+		CMStringW wszState = jnInfo["state"].as_mstring();
+
+		if (jnInfo["left"].as_bool() || jnInfo["kicked"].as_bool() || wszState == L"left" || wszState == L"kicked") {
 			setByte(cc->m_si->hContact, "kicked", jnInfo["kicked"].as_bool());
 			LeaveChat(cc->m_iChatId);
 			return;
 		}
-		cc->m_iAdminId = jnInfo["admin_id"].as_int();
 	}
-
 
 	if (!jnResponse["users"])
 		return;
 
-	const JSONNode &jnUsers = jnResponse["users"]["profiles"];
+	const JSONNode &jnUsersItems = jnResponse["users"]["items"];
+	
+	if (jnUsersItems)
+		for (auto& jnUser : jnUsersItems)
+			if (jnUser["is_owner"].as_bool()) {
+				cc->m_iOwner = jnUser["member_id"].as_int();
+				break;
+			}
+
+	const JSONNode& jnUsers = jnResponse["users"]["profiles"];
 
 	if (jnUsers) {
 		for (auto &it : cc->m_users)
@@ -255,32 +264,32 @@ void CVkProto::OnReceiveChatInfo(MHttpResponse *reply, AsyncHttpRequest *pReq)
 			_ltow(iUserId, wszId, 10);
 
 			bool bNew;
-			CVkChatUser *iChatUser = cc->m_users.find((CVkChatUser*)&iUserId);
-			if (iChatUser == nullptr) {
-				cc->m_users.insert(iChatUser = new CVkChatUser(iUserId));
+			CVkChatUser *vkChatUser = cc->m_users.find((CVkChatUser*)&iUserId);
+			if (vkChatUser == nullptr) {
+				cc->m_users.insert(vkChatUser = new CVkChatUser(iUserId));
 				bNew = true;
 			}
 			else
-				bNew = iChatUser->m_bUnknown;
-			iChatUser->m_bDel = false;
+				bNew = vkChatUser->m_bUnknown;
+			vkChatUser->m_bDel = false;
 
-			CMStringW wszNick(ptrW(db_get_wsa(cc->m_si->hContact, m_szModuleName, CMStringA(FORMAT, "nick%d", iChatUser->m_iUserId))));
+			CMStringW wszNick(ptrW(db_get_wsa(cc->m_si->hContact, m_szModuleName, CMStringA(FORMAT, "nick%d", vkChatUser->m_iUserId))));
 			if (wszNick.IsEmpty())
 				wszNick = bIsGroup ?
 					jnUser["name"].as_mstring() :
 					jnUser["first_name"].as_mstring().Trim() + L" " + jnUser["last_name"].as_mstring().Trim();
 
 
-			iChatUser->m_wszNick = mir_wstrdup(wszNick);
-			iChatUser->m_bUnknown = false;
+			vkChatUser->m_wszNick = mir_wstrdup(wszNick);
+			vkChatUser->m_bUnknown = false;
 
 			if (bNew) {
 				GCEVENT gce = { cc->m_si, GC_EVENT_JOIN };
 				gce.bIsMe = iUserId == m_iMyUserId;
 				gce.pszUID.w = wszId;
 				gce.pszNick.w = wszNick;
-				gce.pszStatus.w = TranslateW(sttStatuses[iUserId == cc->m_iAdminId]);
-				gce.dwItemData = (INT_PTR)iChatUser;
+				gce.pszStatus.w = TranslateW(sttStatuses[iUserId == cc->m_iOwner]);
+				gce.dwItemData = (INT_PTR)vkChatUser;
 				Chat_Event(&gce);
 			}
 		}
