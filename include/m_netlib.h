@@ -42,7 +42,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 struct MHttpRequest;
 struct NETLIBOPENCONNECTION;
 
-#define NETLIB_USER_AGENT "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.112 Safari/537.36"
+#define NETLIB_USER_AGENT "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Initialises the netlib for a set of connections
@@ -267,6 +267,7 @@ typedef void (*NETLIBNEWCONNECTIONPROC)(HNETLIBCONN hNewConnection, uint32_t dwR
 struct NETLIBBIND
 {
 	NETLIBNEWCONNECTIONPROC pfnNewConnection;
+	int iType;  // SOCK_STREAM or 0 by default, SOCK_DGRAM, SOCK_RAW
 
 	// function to call when there's a new connection. Params are: the
 	// new connection, IP of remote machine (host byte order)
@@ -755,27 +756,65 @@ EXTERN_C MIR_APP_DLL(void*) Netlib_GetTlsUnique(HNETLIBCONN nlc, int &cbLen, int
 /////////////////////////////////////////////////////////////////////////////////////////
 // WebSocket support
 
-struct WSHeader
+class MIR_APP_EXPORT MWebSocket : public MNonCopyable
 {
-	WSHeader()
-	{
-		memset(this, 0, sizeof(*this));
-	}
+	mir_cs m_cs;
+	bool m_bTerminated = false;
 
-	bool bIsFinal, bIsMasked;
-	int opCode, firstByte;
-	size_t payloadSize, headerSize;
+protected:
+	HNETLIBUSER m_nlu = 0;
+	HNETLIBCONN m_hConn = 0;
+
+public:
+	MWebSocket();
+	~MWebSocket();
+
+	// packet processor
+	virtual void process(const uint8_t *buf, size_t cbLen) = 0;
+
+	// connects to a WebSocket server
+	MHttpResponse* connect(HANDLE nlu, const char *szHost, const MHttpHeaders *pHeaders = nullptr);
+
+	// runs a socket reading cycle
+	void run();
+
+	// terminates a reading cycle
+	void terminate();
+
+	// sends a packet to WebSocket
+	void sendText(const char *pData);
+	void sendBinary(const void *pData, size_t strLen);
 };
 
-// connects to a WebSocket server
-EXTERN_C MIR_APP_DLL(MHttpResponse*) WebSocket_Connect(HNETLIBUSER, const char *szHost, const MHttpHeaders *pHeaders = nullptr);
+class MIR_APP_EXPORT MJsonWebSocket : public MWebSocket
+{
+	void process(const uint8_t *buf, size_t cbLen) override;
 
-// validates that the provided buffer contains full WebSocket datagram
-EXTERN_C MIR_APP_DLL(bool) WebSocket_InitHeader(WSHeader &hdr, const void *pData, size_t bufSize);
+public:
+	MJsonWebSocket() {}
 
-// sends a packet to WebSocket
-EXTERN_C MIR_APP_DLL(void) WebSocket_SendText(HNETLIBCONN nlc, const char *pData);
-EXTERN_C MIR_APP_DLL(void) WebSocket_SendBinary(HNETLIBCONN nlc, const void *pData, size_t strLen);
+	virtual void process(const class JSONNode &json) = 0;
+};
+
+template<class T> class WebSocket : public MWebSocket
+{
+	T *p;
+
+public:
+	WebSocket(T *_1) : p(_1) {}
+
+	void process(const uint8_t *buf, size_t cbLen) override;
+};
+
+template<class T> class JsonWebSocket : public MJsonWebSocket
+{
+	T *p;
+
+public:
+	JsonWebSocket(T *_1) : p(_1) {}
+
+	void process(const JSONNode &node) override;
+};
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Netlib hooks (0.8+)

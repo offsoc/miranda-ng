@@ -22,7 +22,7 @@ AsyncHttpRequest::AsyncHttpRequest(int type, SkypeHost host, LPCSTR url, MTHttpR
 {
 	switch (host) {
 	case HOST_API:       m_szUrl = "api.skype.com"; break;
-	case HOST_CONTACTS:  m_szUrl = "contacts.skype.com"; break;
+	case HOST_CONTACTS:  m_szUrl = "contacts.skype.com/contacts/v2"; break;
 	case HOST_GRAPH:     m_szUrl = "skypegraph.skype.com"; break;
 	case HOST_LOGIN:     m_szUrl = "login.skype.com"; break;
 	case HOST_DEFAULT:
@@ -37,6 +37,11 @@ AsyncHttpRequest::AsyncHttpRequest(int type, SkypeHost host, LPCSTR url, MTHttpR
 	m_pFunc = pFunc;
 	flags = NLHRF_HTTP11 | NLHRF_SSL | NLHRF_DUMPASTEXT;
 	requestType = type;
+}
+
+void AsyncHttpRequest::AddRegister(CSkypeProto *ppro)
+{
+	AddHeader("RegistrationToken", CMStringA("registrationToken=") + ppro->m_szToken);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -97,9 +102,9 @@ MHttpResponse* CSkypeProto::DoSend(AsyncHttpRequest *pReq)
 		if (m_szApiToken)
 			pReq->AddHeader((pReq->m_host == HOST_CONTACTS) ? "X-SkypeToken" : "X-Skypetoken", m_szApiToken);
 
-		pReq->AddHeader("Accept", "application/json; ver=1.0;");
+		pReq->AddHeader("Accept", "application/json");
 		pReq->AddHeader("Origin", "https://web.skype.com");
-		pReq->AddHeader("Referer", "https://web.skype.com/main");
+		pReq->AddHeader("Referer", "https://web.skype.com/");
 		break;
 
 	case HOST_GRAPH:
@@ -110,7 +115,7 @@ MHttpResponse* CSkypeProto::DoSend(AsyncHttpRequest *pReq)
 
 	case HOST_DEFAULT:
 		if (m_szToken)
-			pReq->AddHeader("RegistrationToken", CMStringA(FORMAT, "registrationToken=%s", m_szToken.get()));
+			pReq->AddRegister(this);
 		pReq->AddHeader("Accept", "application/json, text/javascript");
 		break;
 	}

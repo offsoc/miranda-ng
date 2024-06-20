@@ -167,12 +167,55 @@ struct CDiscordVoiceState : public MZeroedObject
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-struct CDiscordVoiceCall : public MZeroedObject
+class CDiscordVoiceCall : public MZeroedObject
 {
+	friend class CDiscordProto;
+
+	CDiscordProto *ppro;
+
+	JsonWebSocket<CDiscordVoiceCall> *m_ws;
+
+	CTimer m_timer;
+	HNETLIBBIND m_hBind;
+	mir_cs m_cs;
+	bool m_bTerminated;
+	time_t startTime;
+
+	CMStringA m_szIp;
+	int m_iPort, m_iSsrc;
+	OBJLIST<char> m_arModes;
+
+	OpusEncoder *m_encoder;
+	OpusRepacketizer *m_repacketizer;
+
+	void onTimer(CTimer *)
+	{
+		JSONNode d; d << INT_PARAM("", rand());
+		write(3, d);
+	}
+
+	static void GetConnection(HNETLIBCONN /*hNewConnection*/, uint32_t /*dwRemoteIP*/, void *pExtra);
+
+public:
+	CDiscordVoiceCall(CDiscordProto *pOwner);
+	~CDiscordVoiceCall();
+
+	// config
 	SnowFlake channelId, guildId;
 	CMStringA szSessionId, szToken, szEndpoint;
-	time_t    startTime;
+
+	__forceinline operator bool() const {
+		return !m_bTerminated;
+	}
+
+	void write(int op, JSONNode &d);
+
+	void process(const JSONNode &node);
+	void processHello(const JSONNode &d);
+	void processStreams(const JSONNode &d);
 };
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 struct CDiscordGuildMember : public MZeroedObject
 {
@@ -252,6 +295,8 @@ class CDiscordProto : public PROTO<CDiscordProto>
 	friend class CDiscardAccountOptions;
 	friend class CMfaDialog;
 	friend class CGroupchatInviteDlg;
+	friend class CDiscordVoiceCall;
+	friend class JsonWebSocket<CDiscordProto>;
 
 	class CDiscordProtoImpl
 	{
@@ -324,13 +369,12 @@ class CDiscordProto : public PROTO<CDiscordProto>
 		m_szWSCookie;          // cookie used for establishing websocket connection
 	
 	HNETLIBUSER m_hGatewayNetlibUser; // the separate netlib user handle for gateways
-	HNETLIBCONN m_hGatewayConnection;      // gateway connection
-	
+	JsonWebSocket<CDiscordProto> *m_ws;
+
 	void __cdecl GatewayThread(void*);
 	bool  GatewayThreadWorker(void);
 	
 	bool  GatewaySend(const JSONNode &pNode);
-	bool  GatewayProcess(const JSONNode &pNode);
 
 	void  GatewaySendGuildInfo(CDiscordGuild *pGuild);
 	void  GatewaySendHeartbeat(void);
@@ -608,7 +652,7 @@ struct CMPlugin : public ACCPROTOPLUGIN<CDiscordProto>
 {
 	CMPlugin();
 
-	bool bVoiceService = false;
+	bool bVoiceService = false, bVoiceEnabled = true;
 
 	int Load() override;
 };

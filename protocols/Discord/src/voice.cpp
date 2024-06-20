@@ -57,7 +57,7 @@ void CDiscordProto::VoiceChannelConnect(MCONTACT hContact)
 				if (pGuild->pVoiceCall)
 					return;
 
-				pGuild->pVoiceCall = new CDiscordVoiceCall();
+				pGuild->pVoiceCall = new CDiscordVoiceCall(this);
 				pGuild->pVoiceCall->guildId = pGuild->m_id;
 				pGuild->pVoiceCall->channelId = channelId;
 			}
@@ -87,12 +87,6 @@ void CDiscordProto::TryVoiceStart(CDiscordGuild *pGuild)
 			return;
 		}
 	}
-}
-
-void CDiscordProto::VoiceClientThread(void *param)
-{
-	auto *pCall = (CDiscordVoiceCall *)param;
-	pCall->startTime = time(0);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////

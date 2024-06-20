@@ -45,7 +45,9 @@ CSkypeProto::CSkypeProto(const char* protoName, const wchar_t* userName) :
 
 	CreateProtoService(PS_MENU_REQAUTH, &CSkypeProto::OnRequestAuth);
 	CreateProtoService(PS_MENU_GRANTAUTH, &CSkypeProto::OnGrantAuth);
-	CreateProtoService(PS_MENU_LOADHISTORY, &CSkypeProto::GetContactHistory);
+
+	CreateProtoService(PS_MENU_LOADHISTORY, &CSkypeProto::SvcLoadHistory);
+	CreateProtoService(PS_EMPTY_SRV_HISTORY, &CSkypeProto::SvcEmptyHistory);
 
 	HookProtoEvent(ME_OPT_INITIALISE, &CSkypeProto::OnOptionsInit);
 
@@ -103,7 +105,7 @@ INT_PTR CSkypeProto::GetCaps(int type, MCONTACT)
 {
 	switch (type) {
 	case PFLAGNUM_1:
-		return PF1_IM | PF1_AUTHREQ | PF1_CHAT | PF1_BASICSEARCH | PF1_MODEMSG | PF1_FILE;
+		return PF1_IM | PF1_AUTHREQ | PF1_CHAT | PF1_BASICSEARCH | PF1_MODEMSG | PF1_FILE | PF1_SERVERCLIST;
 	case PFLAGNUM_2:
 		return PF2_ONLINE | PF2_INVISIBLE | PF2_SHORTAWAY | PF2_HEAVYDND;
 	case PFLAGNUM_3:
@@ -187,7 +189,7 @@ int CSkypeProto::Authorize(MEVENT hDbEvent)
 	if (hContact == INVALID_CONTACT_ID)
 		return 1;
 
-	PushRequest(new AuthAcceptRequest(getId(hContact)));
+	PushRequest(new AuthAcceptRequest(this, getId(hContact)));
 	return 0;
 }
 
@@ -197,7 +199,7 @@ int CSkypeProto::AuthDeny(MEVENT hDbEvent, const wchar_t*)
 	if (hContact == INVALID_CONTACT_ID)
 		return 1;
 
-	PushRequest(new AuthDeclineRequest(getId(hContact)));
+	PushRequest(new AuthDeclineRequest(this, getId(hContact)));
 	return 0;
 }
 

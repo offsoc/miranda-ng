@@ -271,7 +271,7 @@ void CSkypeProto::OnCapabilitiesSended(MHttpResponse *response, AsyncHttpRequest
 	m_hPollingEvent.Set();
 
 	PushRequest(new LoadChatsRequest());
-	PushRequest(new GetContactListRequest(this, nullptr));
+	PushRequest(new GetContactListRequest());
 	PushRequest(new GetAvatarRequest(ptrA(getStringA("AvatarUrl")), 0));
 
 	if (bAutoHistorySync)
@@ -279,7 +279,7 @@ void CSkypeProto::OnCapabilitiesSended(MHttpResponse *response, AsyncHttpRequest
 
 	JSONNode root = JSONNode::parse(response->body);
 	if (root)
-		setString("SelfEndpointName", UrlToSkypeId(root["selfLink"].as_string().c_str()));
+		m_szOwnSkypeId = UrlToSkypeId(root["selfLink"].as_string().c_str()).Detach();
 
 	PushRequest(new GetProfileRequest(this, 0));
 }

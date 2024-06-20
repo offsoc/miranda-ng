@@ -80,11 +80,13 @@ struct MIR_CORE_EXPORT MClipUnicode : public MClipData
 	void Copy() const override;
 };
 
-struct MClipUtf8 : public MClipUnicode
+struct MIR_CORE_EXPORT MClipUtf8 : public MClipData
 {
-	explicit MClipUtf8(const char *pszString) :
-		MClipUnicode(Utf2T(pszString))
-	{}
+	const char *m_szString;
+
+	explicit MClipUtf8(const char *pszString);
+
+	void Copy() const override;
 };
 
 struct MIR_CORE_EXPORT MClipRtf : public MClipData
@@ -431,6 +433,11 @@ EXTERN_C MIR_CORE_DLL(void) Utils_GetRandom(void *pszDest, size_t cbLen);
 // Checks if a string is RTL
 
 EXTERN_C MIR_CORE_DLL(bool) Utils_IsRtl(const wchar_t *pszwText);
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// UUID generator
+
+MIR_CORE_DLL(CMStringA) Utils_GenerateUUID();
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Unzip memory buffer

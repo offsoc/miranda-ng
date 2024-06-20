@@ -189,6 +189,9 @@ MIR_APP_DLL(HNETLIBBIND) Netlib_BindPort(HNETLIBUSER nlu, NETLIBBIND *nlb)
 		return nullptr;
 	}
 
+	if (nlb->iType == 0)
+		nlb->iType = SOCK_STREAM;
+
 	NetlibBoundPort *nlbp = new NetlibBoundPort(nlu, nlb);
 	if (nlbp->s == INVALID_SOCKET && nlbp->s6 == INVALID_SOCKET) {
 		Netlib_Logf(nlu, "%s %d: %s() failed (%u)", __FILE__, __LINE__, "socket", WSAGetLastError());
@@ -240,17 +243,19 @@ LBL_Error:
 		goto LBL_Error;
 	}
 
-	if (nlbp->s != INVALID_SOCKET && listen(nlbp->s, 5)) {
-		Netlib_Logf(nlu, "%s %d: %s() failed (%u)", __FILE__, __LINE__, "listen", WSAGetLastError());
-		goto LBL_Error;
+	if (nlb->iType == SOCK_STREAM) {
+		if (nlbp->s != INVALID_SOCKET && listen(nlbp->s, 5)) {
+			Netlib_Logf(nlu, "%s %d: %s() failed (%u)", __FILE__, __LINE__, "listen", WSAGetLastError());
+			goto LBL_Error;
+		}
+
+		if (nlbp->s6 != INVALID_SOCKET && listen(nlbp->s6, 5)) {
+			Netlib_Logf(nlu, "%s %d: %s() failed (%u)", __FILE__, __LINE__, "listen", WSAGetLastError());
+			goto LBL_Error;
+		}
 	}
 
-	if (nlbp->s6 != INVALID_SOCKET && listen(nlbp->s6, 5)) {
-		Netlib_Logf(nlu, "%s %d: %s() failed (%u)", __FILE__, __LINE__, "listen", WSAGetLastError());
-		goto LBL_Error;
-	}
-
-	SOCKADDR_INET_M sinm = { 0 };
+	SOCKADDR_INET_M sinm = {};
 	int len = sizeof(sinm);
 	if (!getsockname(nlbp->s, (PSOCKADDR)&sinm, &len)) {
 		nlb->wPort = ntohs(sinm.Ipv4.sin_port);
@@ -290,7 +295,8 @@ LBL_Error:
 		nlb->dwExternalIP = nlb->dwInternalIP;
 	}
 
-	nlbp->hThread = mir_forkThread<NetlibBoundPort>(NetlibBindAcceptThread, nlbp);
+	if (nlb->iType == SOCK_STREAM)
+		nlbp->hThread = mir_forkThread<NetlibBoundPort>(NetlibBindAcceptThread, nlbp);
 
 	if (GetSubscribersCount((THook*)hEventConnected)) {
 		NETLIBCONNECTIONEVENTINFO ncei = {};
@@ -306,15 +312,15 @@ LBL_Error:
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-NetlibBoundPort::NetlibBoundPort(HNETLIBUSER _nlu, NETLIBBIND *nlb)
-	: handleType(NLH_BOUNDPORT),
+NetlibBoundPort::NetlibBoundPort(HNETLIBUSER _nlu, NETLIBBIND *nlb) :
+	handleType(NLH_BOUNDPORT),
 	nlu(_nlu)
 {
 	pfnNewConnection = nlb->pfnNewConnection;
 	pExtra = nlb->pExtra;
 
-	s = socket(PF_INET, SOCK_STREAM, 0);
-	s6 = socket(PF_INET6, SOCK_STREAM, 0);
+	s = socket(PF_INET, nlb->iType, 0);
+	s6 = socket(PF_INET6, nlb->iType, 0);
 }
 
 void NetlibBoundPort::close()
