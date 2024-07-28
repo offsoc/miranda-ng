@@ -35,7 +35,7 @@ static mir_cs csGroups;
 /////////////////////////////////////////////////////////////////////////////////////////
 
 static int CompareGrpByName(const CGroupInternal *p1, const CGroupInternal *p2)
-{	return mir_wstrcmp(p1->groupName+1, p2->groupName+1);
+{	return mir_wstrcmp(p1->groupName, p2->groupName);
 }
 
 static LIST<CGroupInternal> arByName(20, CompareGrpByName);
@@ -288,17 +288,17 @@ MIR_APP_DLL(int) Clist_GroupMoveBefore(MGROUP hGroup, MGROUP hGroupBefore)
 	// shuffle list of groups up to fill gap
 	int shuffleFrom, shuffleTo, shuffleStep;
 	if (hGroupBefore == 0) {
-		shuffleFrom = 0;
-		shuffleTo = hGroup;
+		shuffleFrom = hGroup;
+		shuffleTo = hGroupBefore = arByIds.getCount() - 1;
 		shuffleStep = 1;
 	}
 	else {
 		hGroupBefore--;
-		CGroupInternal *pDest = FindGroup(hGroupBefore);
-		if (pDest == nullptr)
+		if (!FindGroup(hGroupBefore))
 			return 0;
 
 		if (hGroup < hGroupBefore) {
+			hGroupBefore--;
 			shuffleFrom = hGroup;
 			shuffleTo = hGroupBefore;
 			shuffleStep = 1;

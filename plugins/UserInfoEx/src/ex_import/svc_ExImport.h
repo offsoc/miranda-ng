@@ -37,17 +37,16 @@ enum ExImType
 {
 	EXIM_ALL = 1,
 	EXIM_CONTACT = 2,
-	EXIM_GROUP = 4,
-	EXIM_SUBGROUP = 8,
-	EXIM_ACCOUNT = 16
+	EXIM_SUBGROUP = 4,
+	EXIM_ACCOUNT = 8
 };
 
-INT_PTR svcExIm_MainExport_Service(WPARAM wParam, LPARAM lParam);
-INT_PTR svcExIm_MainImport_Service(WPARAM wParam, LPARAM lParam);
-INT_PTR svcExIm_ContactExport_Service(WPARAM wParam, LPARAM lParam);
-INT_PTR svcExIm_ContactImport_Service(WPARAM wParam, LPARAM lParam);
-INT_PTR svcExIm_Group_Service(WPARAM wParam, LPARAM lParam);
-INT_PTR svcExIm_Account_Service(WPARAM wParam, LPARAM lParam);
+INT_PTR svcExportContact(WPARAM wParam, LPARAM lParam);
+INT_PTR svcImportContact(WPARAM wParam, LPARAM lParam);
+INT_PTR svcExportGroup(WPARAM wParam, LPARAM lParam);
+INT_PTR svcImportGroup(WPARAM wParam, LPARAM lParam);
+
+INT_PTR svcExImAccount(WPARAM wParam, LPARAM lParam);
 
 void SvcExImport_LoadModule();
 

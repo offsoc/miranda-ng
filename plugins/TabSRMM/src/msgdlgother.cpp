@@ -527,7 +527,6 @@ void CMsgDialog::DrawNickList(USERINFO *ui, DRAWITEMSTRUCT *dis)
 void CMsgDialog::EnableSendButton(bool bMode) const
 {
 	SendDlgItemMessage(m_hwnd, IDOK, BUTTONSETASNORMAL, bMode, 0);
-	SendDlgItemMessage(m_hwnd, IDC_PIC, BUTTONSETASNORMAL, m_bEditNotesActive ? TRUE : (!bMode && m_iOpenJobs == 0) ? TRUE : FALSE, 0);
 
 	HWND hwndOK = GetDlgItem(GetParent(GetParent(m_hwnd)), IDOK);
 	if (IsWindow(hwndOK))
@@ -738,8 +737,9 @@ int CMsgDialog::FindRTLLocale()
 void CMsgDialog::FlashOnClist(MEVENT hEvent, const DB::EventInfo &dbei)
 {
 	m_dwTickLastEvent = GetTickCount();
+	bool bSent = dbei.flags & DBEF_SENT;
 
-	if ((GetForegroundWindow() != m_pContainer->m_hwnd || m_pContainer->m_hwndActive != m_hwnd) && !(dbei.flags & DBEF_SENT) && dbei.eventType == EVENTTYPE_MESSAGE) {
+	if ((GetForegroundWindow() != m_pContainer->m_hwnd || m_pContainer->m_hwndActive != m_hwnd) && !bSent) {
 		m_dwUnread++;
 		AddUnreadContact(m_hContact);
 	}
@@ -750,7 +750,7 @@ void CMsgDialog::FlashOnClist(MEVENT hEvent, const DB::EventInfo &dbei)
 	if (!g_plugin.bFlashOnClist || isChat())
 		return;
 
-	if ((GetForegroundWindow() != m_pContainer->m_hwnd || m_pContainer->m_hwndActive != m_hwnd) && !(dbei.flags & DBEF_SENT) && dbei.eventType == EVENTTYPE_MESSAGE && !m_bFlashClist) {
+	if ((GetForegroundWindow() != m_pContainer->m_hwnd || m_pContainer->m_hwndActive != m_hwnd) && !bSent && !m_bFlashClist) {
 		for (int i = 0;; i++) {
 			auto *cle = Clist_GetEvent(m_hContact, i);
 			if (cle == nullptr)
@@ -763,7 +763,7 @@ void CMsgDialog::FlashOnClist(MEVENT hEvent, const DB::EventInfo &dbei)
 		CLISTEVENT cle = {};
 		cle.hContact = m_hContact;
 		cle.hDbEvent = hEvent;
-		cle.hIcon = Skin_LoadIcon(SKINICON_EVENT_MESSAGE);
+		cle.hIcon = Skin_LoadIcon((dbei.eventType == EVENTTYPE_FILE) ? SKINICON_EVENT_FILE : SKINICON_EVENT_MESSAGE);
 		cle.pszService = MS_MSG_READMESSAGE;
 		g_clistApi.pfnAddEvent(&cle);
 

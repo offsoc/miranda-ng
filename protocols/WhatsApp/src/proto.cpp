@@ -136,6 +136,20 @@ void WhatsAppProto::RemoveCachedSettings()
 	m_szJid.Empty();
 }
 
+void WhatsAppProto::OnCacheInit()
+{
+	if (!m_szJid.IsEmpty())
+		m_arUsers.insert(new WAUser(0, m_szJid, false));
+
+	for (auto &cc : AccContacts()) {
+		m_bCacheInited = true;
+
+		CMStringA szId(getMStringA(cc, DBKEY_ID));
+		if (!szId.IsEmpty())
+			m_arUsers.insert(new WAUser(cc, szId, isChatRoom(cc)));
+	}
+}
+
 void WhatsAppProto::OnErase()
 {
 	m_bUnregister = true;
@@ -144,22 +158,6 @@ void WhatsAppProto::OnErase()
 	RemoveCachedSettings();
 
 	DeleteDirectoryTreeW(CMStringW(VARSW(L"%miranda_userdata%")) + L"\\" + _A2T(m_szModuleName), false);
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-// OnModulesLoaded emulator for an account
-
-void WhatsAppProto::OnModulesLoaded()
-{
-	// initialize contacts cache
-	if (!m_szJid.IsEmpty())
-		m_arUsers.insert(new WAUser(0, m_szJid, false));
-
-	for (auto &cc : AccContacts()) {
-		CMStringA szId(getMStringA(cc, DBKEY_ID));
-		if (!szId.IsEmpty())
-			m_arUsers.insert(new WAUser(cc, szId, isChatRoom(cc)));
-	}
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -186,7 +184,8 @@ INT_PTR WhatsAppProto::GetCaps(int type, MCONTACT)
 	case PFLAGNUM_3:
 		return 0;
 	case PFLAGNUM_4:
-		return PF4_NOCUSTOMAUTH | PF4_NOAUTHDENYREASON | PF4_IMSENDOFFLINE | PF4_OFFLINEFILES | PF4_SUPPORTTYPING | PF4_AVATARS | PF4_SERVERMSGID;
+		return PF4_NOCUSTOMAUTH | PF4_NOAUTHDENYREASON | PF4_IMSENDOFFLINE | PF4_OFFLINEFILES | PF4_SUPPORTTYPING | PF4_AVATARS |
+			PF4_SERVERMSGID | PF4_GROUPCHATFILES;
 	case PFLAGNUM_5:
 		return 0;
 	case PFLAG_UNIQUEIDTEXT:

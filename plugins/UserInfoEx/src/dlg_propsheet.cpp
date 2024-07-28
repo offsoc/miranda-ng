@@ -114,7 +114,7 @@ private:
 		if (!IsProtoOnline((*_pPd)->szModuleName))
 			MsgBox(_pPs->hDlg, MB_ICON_WARNING, TranslateT("Upload details"),
 				CMStringW(FORMAT, TranslateT("Protocol '%s' is offline"), _A2T((*_pPd)->szModuleName).get()),
-				TranslateT("You are not currently connected to the ICQ network.\nYou must be online in order to update your information on the server.\n\nYour changes will be saved to database only."));
+				TranslateT("You are not currently connected to the MRA network.\nYou must be online in order to update your information on the server.\n\nYour changes will be saved to database only."));
 
 		// start uploading process
 		else _hUploading = 0;
@@ -920,7 +920,7 @@ static INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 				}
 				else if (ack->result == ACKRESULT_FAILED) {
 					MsgBox(hDlg, MB_ICON_WARNING,
-						LPGENW("Upload ICQ details"),
+						LPGENW("Upload MRA details"),
 						LPGENW("Upload failed"),
 						LPGENW("Your details were not uploaded successfully.\nThey were written to database only."));
 					KillTimer(hDlg, TIMERID_UPDATING);
@@ -1268,14 +1268,14 @@ static INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 			break;
 
 		case BTN_IMPORT:
-			svcExIm_ContactImport_Service((WPARAM)pPs->hContact, 0);
+			svcImportContact(pPs->hContact, 0);
 			break;
 
 		case BTN_EXPORT:
 			// save changes before exporting data
 			DlgProc(hDlg, WM_COMMAND, MAKEWPARAM(IDAPPLY, BN_CLICKED), (LPARAM)GetDlgItem(hDlg, IDAPPLY));
 			// do the exporting stuff
-			svcExIm_ContactExport_Service((WPARAM)pPs->hContact, 0);
+			svcExportContact(pPs->hContact, 0);
 			break;
 		}
 		break;

@@ -546,7 +546,7 @@ static BOOL HandleChatEvent(GCEVENT &gce, int bManyFix)
 		if (gce.iType == GC_EVENT_JOIN && gce.time == 0)
 			return 0;
 
-		if (si && (si->bInitDone || gce.iType == GC_EVENT_TOPIC || (gce.iType == GC_EVENT_JOIN && gce.bIsMe))) {
+		if (si->bInitDone || gce.iType == GC_EVENT_TOPIC || (gce.iType == GC_EVENT_JOIN && gce.bIsMe)) {
 			if (gce.pszNick.w == nullptr && gce.pszUID.w != nullptr)
 				if (USERINFO *ui = g_chatApi.UM_FindUser(si, gce.pszUID.w))
 					gce.pszNick.w = ui->pszNick;
@@ -836,7 +836,7 @@ static int OnEventAdded(WPARAM hContact, LPARAM hDbEvent)
 	else {
 		Clist_RemoveEvent(hContact, 1);
 
-		DB::EventInfo dbei(hDbEvent, false);
+		DB::EventInfo dbei(hDbEvent);
 		if (dbei) {
 			if (auto *pDlg = Srmm_FindDialog(hContact))
 				pDlg->EventAdded(hDbEvent, dbei);

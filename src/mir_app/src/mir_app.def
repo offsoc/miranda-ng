@@ -143,7 +143,6 @@ Menu_RemoveItem @210
 Menu_AddObject @211
 Menu_RemoveObject @212
 Menu_GetItemData @213
-Menu_GetDefaultItem @214
 Menu_GetItemInfo @215
 Menu_ProcessHotKey @216
 Menu_DrawItem @217
@@ -986,3 +985,4 @@ g_hevEventSetJson @1109 NONAME
 ??_7MJsonWebSocket@@6B@ @1122 NONAME
 ?process@MJsonWebSocket@@EAEXPBEI@Z @1123 NONAME
 _Proto_CanDeleteHistory@8 @1124 NONAME
+?OnCacheInit@PROTO_INTERFACE@@UAEXXZ @1125 NONAME

@@ -19,11 +19,9 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 const ttemplate templates[] =
 {
-	{ LPGEN("Custom"), "", "" },
-	{ "AIM", "SN", LPGEN("Screen name") },
-#ifndef MIRANDA_VERSION_ISALPHA
-	{ "Discord", "id", LPGEN("Discord ID") },
-#endif
+	{ LPGEN("Custom"),    "",         ""                        },
+	{ "AIM",              "SN",       LPGEN("Screen name")      },
+	{ "Discord",          "id",       LPGEN("Discord ID")       },
 	{ "EmLAN",            "Nick",     LPGEN("User name")        },
 	{ "Facebook",         "ID",       LPGEN("Facebook ID")      },
 	{ "GG",               "UIN",      LPGEN("Gadu-Gadu number") },
@@ -102,7 +100,7 @@ CDummyProto::~CDummyProto()
 
 int CDummyProto::getTemplateId()
 {
-	int id = this->getByte(DUMMY_ID_TEMPLATE, -1);
+	int id = getByte(DUMMY_ID_TEMPLATE, -1);
 	if (id >= 0 && id < _countof(templates))
 		return id;
 	
@@ -158,6 +156,9 @@ INT_PTR CDummyProto::GetCaps(int type, MCONTACT)
 				wcsncpy_s(uniqueIdSetting, setting, _TRUNCATE);
 		}
 		return (INT_PTR)uniqueIdSetting;
+
+	case 1000: // hidden caps
+		return TRUE;
 	}
 	return 0;
 }
@@ -167,7 +168,7 @@ INT_PTR CDummyProto::GetCaps(int type, MCONTACT)
 int CDummyProto::SendMsg(MCONTACT hContact, MEVENT, const char *msg)
 {
 	std::string message = msg;
-	unsigned int id = InterlockedIncrement(&this->msgid);
+	unsigned int id = InterlockedIncrement(&msgid);
 
 	if (getByte(DUMMY_KEY_ALLOW_SENDING, 0))
 		ProtoBroadcastAsync(hContact, ACKTYPE_MESSAGE, ACKRESULT_SUCCESS, (HANDLE)id);
