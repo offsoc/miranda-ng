@@ -17,32 +17,13 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #include "stdafx.h"
 
-INT_PTR CSkypeProto::GetEventText(WPARAM pEvent, LPARAM datatype)
+INT_PTR CSkypeProto::SvcGetEventText(WPARAM pEvent, LPARAM datatype)
 {
 	DBEVENTINFO *dbei = (DBEVENTINFO*)pEvent;
 
 	CMStringA szText = Translate("SkypeWeb error: Invalid data!");
 
-	BOOL bUseBB = db_get_b(0, dbei->szModule, "UseBBCodes", 1);
 	switch (dbei->eventType) {
-	case SKYPE_DB_EVENT_TYPE_EDITED_MESSAGE:
-		{
-			JSONNode jMsg = JSONNode::parse((char*)dbei->pBlob);
-			if (jMsg) {
-				JSONNode &jOriginalMsg = jMsg["original_message"];
-				szText.AppendFormat(bUseBB ? Translate("[b]Original message:[/b]\n%s\n") : Translate("Original message:\n%s\n"), mir_utf8decodeA(jOriginalMsg["text"].as_string().c_str()));
-				JSONNode &jEdits = jMsg["edits"];
-				for (auto &it : jEdits) {
-					time_t time = it["time"].as_int();
-					char szTime[MAX_PATH];
-					strftime(szTime, sizeof(szTime), "%X %x", localtime(&time));
-
-					szText.AppendFormat(bUseBB ? Translate("[b]Edited at %s:[/b]\n%s\n") : Translate("Edited at %s:\n%s\n"), szTime, mir_utf8decodeA(it["text"].as_string().c_str()));
-				}
-			}
-		}
-		break;
-
 	case SKYPE_DB_EVENT_TYPE_CALL_INFO:
 		{
 			TiXmlDocument doc;
@@ -91,9 +72,7 @@ INT_PTR CSkypeProto::GetEventText(WPARAM pEvent, LPARAM datatype)
 		}
 		break;
 
-	case SKYPE_DB_EVENT_TYPE_FILE:
 	case SKYPE_DB_EVENT_TYPE_MOJI:
-	case SKYPE_DB_EVENT_TYPE_URIOBJ:
 		{
 			TiXmlDocument doc;
 			if (0 != doc.Parse((char*)dbei->pBlob))
@@ -132,7 +111,7 @@ INT_PTR CSkypeProto::GetEventText(WPARAM pEvent, LPARAM datatype)
 	return (datatype == DBVT_WCHAR) ? (INT_PTR)mir_a2u(szText) : (INT_PTR)szText.Detach();
 }
 
-INT_PTR CSkypeProto::EventGetIcon(WPARAM flags, LPARAM pEvent)
+INT_PTR CSkypeProto::SvcEventGetIcon(WPARAM flags, LPARAM pEvent)
 {
 	DBEVENTINFO *dbei = (DBEVENTINFO*)pEvent;
 	HICON icon = nullptr;
@@ -149,10 +128,6 @@ INT_PTR CSkypeProto::EventGetIcon(WPARAM flags, LPARAM pEvent)
 
 	case SKYPE_DB_EVENT_TYPE_FILETRANSFER_INFO:
 		icon = Skin_LoadIcon(SKINICON_EVENT_FILE);
-		break;
-
-	case SKYPE_DB_EVENT_TYPE_URIOBJ:
-		icon = Skin_LoadIcon(SKINICON_EVENT_URL);
 		break;
 
 	case SKYPE_DB_EVENT_TYPE_UNKNOWN:

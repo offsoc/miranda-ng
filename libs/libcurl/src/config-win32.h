@@ -149,6 +149,10 @@
 /* Define if you have the select function. */
 #define HAVE_SELECT 1
 
+/* Define if libSSH2 is in use */
+#define USE_LIBSSH2 1
+#define HAVE_LIBSSH2_H 1
+
 /* Define if you have the setlocale function. */
 #define HAVE_SETLOCALE 1
 
@@ -157,10 +161,6 @@
 
 /* Define if you have the socket function. */
 #define HAVE_SOCKET 1
-
-/* Define if libSSH2 is in use */
-#define USE_LIBSSH2 1
-#define HAVE_LIBSSH2_H 1
 
 /* Define if you have the strcasecmp function. */
 #if defined(__MINGW32__)

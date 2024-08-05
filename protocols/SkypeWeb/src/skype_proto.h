@@ -18,6 +18,12 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #ifndef _SKYPE_PROTO_H_
 #define _SKYPE_PROTO_H_
 
+struct CSkypeTransfer
+{
+	CMStringA docId, fileName, url;
+	int iFileSize = 0;
+};
+
 struct CSkypeProto : public PROTO <CSkypeProto>
 {
 	friend class CSkypeOptionsMain;
@@ -72,6 +78,7 @@ public:
 	MWindow  OnCreateAccMgrUI(MWindow) override;
 	void     OnMarkRead(MCONTACT, MEVENT) override;
 	void     OnModulesLoaded() override;
+	void     OnReceiveOfflineFile(DB::FILE_BLOB &blob) override;
 	void     OnShutdown() override;
 
 	// icons
@@ -88,13 +95,13 @@ public:
 	static void InitLanguages();
 
 	// search
-	void __cdecl SearchBasicThread(void* id);
+	void __cdecl SearchBasicThread(void *param);
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// services
 
-	static INT_PTR EventGetIcon(WPARAM wParam, LPARAM lParam);
-	static INT_PTR GetEventText(WPARAM, LPARAM lParam);
+	static INT_PTR __cdecl SvcEventGetIcon(WPARAM, LPARAM);
+	static INT_PTR __cdecl SvcGetEventText(WPARAM, LPARAM);
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// settings
@@ -244,6 +251,11 @@ private:
 
 	MCONTACT GetContactFromAuthEvent(MEVENT hEvent);
 
+	// files
+	void __cdecl ReceiveFileThread(void *param);
+
+	INT_PTR __cdecl SvcOfflineFile(WPARAM, LPARAM);
+
 	// messages
 	std::map<ULONGLONG, HANDLE> m_mpOutMessagesIds;
 
@@ -251,7 +263,8 @@ private:
 
 	void MarkMessagesRead(MCONTACT hContact, MEVENT hDbEvent);
 
-	void ProcessContactRecv(MCONTACT hContact, time_t timestamp, const char *szContent, const char *szMessageId);
+	void ProcessContactRecv(MCONTACT hContact, const char *szContent, DB::EventInfo &dbei);
+	void ProcessFileRecv(MCONTACT hContact, const char *szContent, DB::EventInfo &dbei);
 
 	// chats
 	void InitGroupChatModule();
@@ -318,10 +331,10 @@ private:
 
 	CMStringW ChangeTopicForm();
 
-	//events
+	// events
 	void InitDBEvents();
 
-	//services
+	// services
 	INT_PTR __cdecl BlockContact(WPARAM hContact, LPARAM);
 	INT_PTR __cdecl UnblockContact(WPARAM hContact, LPARAM);
 	INT_PTR __cdecl OnRequestAuth(WPARAM hContact, LPARAM lParam);
