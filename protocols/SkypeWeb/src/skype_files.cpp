@@ -105,6 +105,13 @@ void CSkypeProto::SendFileThread(void *p)
 		return;
 	}
 
+	if (auto *pBitmap = FreeImage_LoadU(FreeImage_GetFIFFromFilenameU(fup->tszFileName), fup->tszFileName)) {
+		fup->isPicture = true;
+		fup->width = FreeImage_GetWidth(pBitmap);
+		fup->height = FreeImage_GetHeight(pBitmap);
+		FreeImage_Unload(pBitmap);
+	}
+
 	ProtoBroadcastAck(fup->hContact, ACKTYPE_FILE, ACKRESULT_CONNECTING, (HANDLE)fup);
 	PushRequest(new ASMObjectCreateRequest(this, fup));
 }
@@ -174,15 +181,12 @@ void CSkypeProto::OnASMObjectUploaded(MHttpResponse *response, AsyncHttpRequest 
 
 	// is that a picture?
 	CMStringA href;
-	bool bIsPictture = false;
-	if (auto *pBitmap = FreeImage_LoadU(FreeImage_GetFIFFromFilenameU(fup->tszFileName), fup->tszFileName)) {
-		bIsPictture = true;
-		pRoot->SetAttribute("type", "File.1" /*"Picture.1"*/);
+	if (fup->isPicture) {
+		pRoot->SetAttribute("type", "Picture.1");
 		pRoot->SetAttribute("url_thumbnail", CMStringA(FORMAT, "https://api.asm.skype.com/v1/objects/%s/views/imgt1_anim", fup->uid.get()));
-		pRoot->SetAttribute("width", FreeImage_GetWidth(pBitmap));
-		pRoot->SetAttribute("height", FreeImage_GetHeight(pBitmap));
+		pRoot->SetAttribute("width", fup->width);
+		pRoot->SetAttribute("height", fup->height);
 		pRoot->SetText("To view this file, go to:");
-		FreeImage_Unload(pBitmap);
 
 		href.Format("https://login.skype.com/login/sso?go=xmmfallback?pic=%s", fup->uid.get());
 	}
@@ -200,7 +204,7 @@ void CSkypeProto::OnASMObjectUploaded(MHttpResponse *response, AsyncHttpRequest 
 	auto *xmlOrigName = doc.NewElement("OriginalName"); xmlOrigName->SetAttribute("v", tszFile); pRoot->InsertEndChild(xmlOrigName);
 	auto *xmlSize = doc.NewElement("FileSize"); xmlSize->SetAttribute("v", (int)fup->size); pRoot->InsertEndChild(xmlSize);
 
-	if (bIsPictture) {
+	if (fup->isPicture) {
 		auto xmlMeta = doc.NewElement("meta"); 
 		xmlMeta->SetAttribute("type", "photo"); xmlMeta->SetAttribute("originalName", tszFile);
 		pRoot->InsertEndChild(xmlMeta);
@@ -214,7 +218,7 @@ void CSkypeProto::OnASMObjectUploaded(MHttpResponse *response, AsyncHttpRequest 
 	Utils_GetRandom(&param->hMessage, sizeof(param->hMessage));
 	param->hMessage &= ~0x80000000;
 
-	auto *pReq = new SendFileRequest(getId(fup->hContact), time(NULL), printer.CStr(), "RichText/Media_GenericFile", fup->uid);
+	auto *pReq = new SendFileRequest(fup, getId(fup->hContact), printer.CStr());
 	pReq->pUserInfo = param;
 	PushRequest(pReq);
 
