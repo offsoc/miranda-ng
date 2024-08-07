@@ -93,7 +93,7 @@ bool CSkypeProto::ParseMessage(const JSONNode &node, DB::EventInfo &dbei)
 	CMStringW wszContent = node["content"].as_mstring();
 
 	std::string strMessageType = node["messagetype"].as_string();
-	if (strMessageType == "RichText/Media_GenericFile") {
+	if (strMessageType == "RichText/Media_GenericFile" || strMessageType == "RichText/UriObject") {
 		ProcessFileRecv(dbei.hContact, node["content"].as_string().c_str(), dbei);
 		return false;
 	}
@@ -247,22 +247,24 @@ void CSkypeProto::ProcessFileRecv(MCONTACT hContact, const char *szContent, DB::
 	}
 
 	// ordinary file
-	if (!mir_strcmp(pszFileType, "File.1")) {
-	}
-	else {
-		debugLogA("Invalid or unsupported file type <%s> ignored", pszFileType);
-		return;
-	}
+	if (!mir_strcmp(pszFileType, "File.1") || !mir_strcmp(pszFileType, "Picture.1")) {
+		MEVENT hEvent;
+		dbei.flags |= DBEF_TEMPORARY | DBEF_JSON;
+		if (dbei) {
+			DB::FILE_BLOB blob(dbei);
+			OnReceiveOfflineFile(blob);
+			blob.write(dbei);
+			db_event_edit(dbei.getEvent(), &dbei, true);
+			delete ft;
+			hEvent = dbei.getEvent();
+		}
+		else hEvent = ProtoChainRecvFile(hContact, DB::FILE_BLOB(ft, ft->fileName), dbei);
 
-	dbei.flags |= DBEF_TEMPORARY;
-	if (dbei) {
-		DB::FILE_BLOB blob(dbei);
-		OnReceiveOfflineFile(blob);
-		blob.write(dbei);
-		db_event_edit(dbei.getEvent(), &dbei, true);
-		delete ft;
+		DBVARIANT dbv = { DBVT_UTF8 };
+		dbv.pszVal = (char*)pszFileType;
+		db_event_setJson(hEvent, "skft", &dbv);
 	}
-	else ProtoChainRecvFile(hContact, DB::FILE_BLOB(ft, ft->fileName), dbei);
+	else debugLogA("Invalid or unsupported file type <%s> ignored", pszFileType);
 }
 
 void CSkypeProto::ProcessContactRecv(MCONTACT hContact, const char *szContent, DB::EventInfo &dbei)
