@@ -152,9 +152,11 @@ void CSkypeProto::ProcessNewMessage(const JSONNode &node)
 
 	MCONTACT hContact = AddContact(szConversationName, nullptr, true);
 
-	time_t timestamp = time(0); // fuck the server time, we need to place events in the order of our local time
-	if (m_bHistorySynced)
-		setDword(hContact, "LastMsgTime", timestamp);
+	if (m_bHistorySynced) {
+		int64_t lastMsgId = _atoi64(node["id"].as_string().c_str());
+		if (lastMsgId > getLastTime(hContact))
+			setLastTime(hContact, lastMsgId);
+	}
 
 	if (iUserType == 19)
 		if (OnChatEvent(node))
@@ -172,7 +174,7 @@ void CSkypeProto::ProcessNewMessage(const JSONNode &node)
 
 	DB::EventInfo dbei(db_event_getById(m_szModuleName, szMessageId));
 	dbei.hContact = hContact;
-	dbei.timestamp = timestamp;
+	dbei.timestamp = time(0);
 	dbei.szId = szMessageId;
 	dbei.flags = DBEF_UTF;
 	if (IsMe(szFromSkypename))
@@ -190,20 +192,11 @@ void CSkypeProto::ProcessNewMessage(const JSONNode &node)
 
 void CSkypeProto::OnMarkRead(MCONTACT hContact, MEVENT hDbEvent)
 {
-	if (IsOnline() && !isChatRoom(hContact))
-		MarkMessagesRead(hContact, hDbEvent);
-}
-
-void CSkypeProto::MarkMessagesRead(MCONTACT hContact, MEVENT hDbEvent)
-{
-	debugLogA(__FUNCTION__);
-
-	DBEVENTINFO dbei = {};
-	db_event_get(hDbEvent, &dbei);
-	time_t timestamp = dbei.timestamp;
-
-	if (getDword(hContact, "LastMsgTime") > (timestamp - 300))
-		PushRequest(new MarkMessageReadRequest(getId(hContact), timestamp, timestamp));
+	if (IsOnline()) {
+		DB::EventInfo dbei(hDbEvent, false);
+		if (dbei && dbei.szId)
+			PushRequest(new MarkMessageReadRequest(getId(hContact), _atoi64(dbei.szId)));
+	}
 }
 
 void CSkypeProto::OnReceiveOfflineFile(DB::FILE_BLOB &blob)
