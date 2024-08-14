@@ -121,6 +121,9 @@ void CDiscordProto::CreateChat(CDiscordGuild *pGuild, CDiscordUser *pUser)
 
 void CDiscordProto::ProcessGuild(const JSONNode &pRoot)
 {
+	if (!m_bUseGroupchats)
+		return;
+
 	SnowFlake guildId = ::getId(pRoot["id"]);
 
 	CDiscordGuild *pGuild = FindGuild(guildId);
@@ -146,13 +149,14 @@ void CDiscordProto::ProcessGuild(const JSONNode &pRoot)
 
 	Chat_Control(si, WINDOW_HIDDEN);
 	Chat_Control(si, SESSION_ONLINE);
-
+	
 	for (auto &it : pRoot["roles"])
 		pGuild->ProcessRole(it);
 
 	BuildStatusList(pGuild, si);
 
-	if (!pGuild->m_bSynced && getByte(si->hContact, DB_KEY_ENABLE_SYNC))
+	bool bEnableSync = getByte(si->hContact, DB_KEY_ENABLE_SYNC);
+	if (!pGuild->m_bSynced && bEnableSync)
 		GatewaySendGuildInfo(pGuild);
 
 	// store all guild members
@@ -183,7 +187,7 @@ void CDiscordProto::ProcessGuild(const JSONNode &pRoot)
 	for (auto &it : pGuild->arChatUsers)
 		AddGuildUser(pGuild, *it);
 
-	if (!m_bTerminated)
+	if (!m_bTerminated && bEnableSync)
 		ForkThread(&CDiscordProto::BatchChatCreate, pGuild);
 
 	pGuild->m_bSynced = true;
@@ -200,7 +204,7 @@ CDiscordUser* CDiscordProto::ProcessGuildChannel(CDiscordGuild *pGuild, const JS
 	bool bIsVoice = false;
 
 	// filter our all channels but the text ones
-	switch (pch["type"].as_int()) {
+	switch (auto iChannelType = pch["type"].as_int()) {
 	case 4: // channel group
 		if (!m_bUseGuildGroups) // ignore groups when they aren't enabled
 			return nullptr;
@@ -226,6 +230,7 @@ CDiscordUser* CDiscordProto::ProcessGuildChannel(CDiscordGuild *pGuild, const JS
 		__fallthrough;
 
 	case 0: // text channel
+	case 5: // announcement channel
 		// check permissions to enter the channel
 		auto permissions = pGuild->CalcPermissionOverride(m_ownId, pch["permission_overwrites"]);
 		if (!(permissions & Permission::VIEW_CHANNEL))
@@ -242,6 +247,10 @@ CDiscordUser* CDiscordProto::ProcessGuildChannel(CDiscordGuild *pGuild, const JS
 
 		if (pGuild->arChannels.find(pUser) == nullptr)
 			pGuild->arChannels.insert(pUser);
+
+		// make announcement channels read-only
+		if (iChannelType == 5)
+			Contact::Readonly(pUser->hContact, true);
 
 		pUser->wszUsername = wszChannelId;
 		if (m_bUseGuildGroups)

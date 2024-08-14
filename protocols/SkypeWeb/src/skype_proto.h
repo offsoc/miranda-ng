@@ -135,7 +135,6 @@ public:
 	void OnLoginOAuth(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnSubscriptionsCreated(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnCapabilitiesSended(MHttpResponse *response, AsyncHttpRequest *pRequest);
-	void OnReceiveStatus(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnStatusChanged(MHttpResponse *response, AsyncHttpRequest *pRequest);
 
 	void OnEndpointCreated(MHttpResponse *response, AsyncHttpRequest *pRequest);
@@ -161,7 +160,6 @@ public:
 	void OnGetServerHistory(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnSyncConversations(MHttpResponse *response, AsyncHttpRequest *pRequest);
 
-	void OnLoadChats(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnGetChatInfo(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnReceiveAwayMsg(MHttpResponse *response, AsyncHttpRequest *pRequest);
 
@@ -294,8 +292,6 @@ private:
 	void ProcessThreadUpdate(const JSONNode &node);
 	void ProcessEndpointPresence(const JSONNode &node);
 	void ProcessConversationUpdate(const JSONNode &node);
-
-	void RefreshStatuses(void);
 
 	// utils
 	template <typename T>

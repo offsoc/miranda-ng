@@ -104,21 +104,31 @@ void CSkypeProto::OnSyncConversations(MHttpResponse *response, AsyncHttpRequest*
 	// int totalCount = metadata["totalCount"].as_int();
 	std::string syncState = metadata["syncState"].as_string();
 
-	for (auto &conversation : conversations) {
-		const JSONNode &lastMessage = conversation["lastMessage"];
+	for (auto &it: conversations) {
+		const JSONNode &lastMessage = it["lastMessage"];
 		if (!lastMessage)
 			continue;
 
 		int iUserType;
 		std::string strConversationLink = lastMessage["conversationLink"].as_string();
 		CMStringA szSkypename = UrlToSkypeId(strConversationLink.c_str(), &iUserType);
-		if (iUserType == 8 || iUserType == 2) {
+		switch (iUserType) {
+		case 19:
+			{
+				auto &props = it["threadProperties"];
+				if (props["members"] && !props["lastleaveat"])
+					StartChatRoom(it["id"].as_mstring(), props["topic"].as_mstring());
+			}
+			__fallthrough;
+
+		case 8:
+		case 2:
 			int64_t id = _atoi64(lastMessage["id"].as_string().c_str());
 
 			MCONTACT hContact = FindContact(szSkypename);
 			if (hContact != NULL) {
 				auto lastMsgTime = getLastTime(hContact);
-				if (lastMsgTime && lastMsgTime < id)
+				if (lastMsgTime && lastMsgTime < id && bAutoHistorySync)
 					PushRequest(new GetHistoryRequest(hContact, szSkypename, 100, lastMsgTime, true));
 			}
 		}

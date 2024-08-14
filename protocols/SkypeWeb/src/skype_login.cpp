@@ -41,6 +41,15 @@ void CSkypeProto::CheckConvert()
 	}
 }
 
+void CSkypeProto::ProcessTimer()
+{
+	if (!IsOnline())
+		return;
+
+	PushRequest(new GetContactListRequest());
+	SendPresence();
+}
+
 void CSkypeProto::Login()
 {
 	CheckConvert();
@@ -209,8 +218,6 @@ void CSkypeProto::OnEndpointCreated(MHttpResponse *response, AsyncHttpRequest*)
 		}
 	}
 
-	RefreshStatuses();
-
 	PushRequest(new CreateSubscriptionsRequest());
 }
 
@@ -269,12 +276,9 @@ void CSkypeProto::OnCapabilitiesSended(MHttpResponse *response, AsyncHttpRequest
 
 	m_hPollingEvent.Set();
 
-	PushRequest(new LoadChatsRequest());
 	PushRequest(new GetContactListRequest());
 	PushRequest(new GetAvatarRequest(ptrA(getStringA("AvatarUrl")), 0));
-
-	if (bAutoHistorySync)
-		PushRequest(new SyncHistoryFirstRequest(100));
+	PushRequest(new SyncConversations());
 
 	JSONNode root = JSONNode::parse(response->body);
 	if (root)
