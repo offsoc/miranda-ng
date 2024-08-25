@@ -22,6 +22,7 @@ AsyncHttpRequest::AsyncHttpRequest(int type, SkypeHost host, LPCSTR url, MTHttpR
 {
 	switch (host) {
 	case HOST_API:       m_szUrl = "api.skype.com"; break;
+	case HOST_PEOPLE:    m_szUrl = "people.skype.com/v2"; break;
 	case HOST_CONTACTS:  m_szUrl = "contacts.skype.com/contacts/v2"; break;
 	case HOST_GRAPH:     m_szUrl = "skypegraph.skype.com"; break;
 	case HOST_LOGIN:     m_szUrl = "login.skype.com"; break;
@@ -59,12 +60,15 @@ void CSkypeProto::StartQueue()
 void CSkypeProto::StopQueue()
 {
 	m_isTerminated = true;
+	m_iPollingId = -1;
 
 	if (m_hRequestQueueThread)
 		m_hRequestQueueEvent.Set();
 
-	if (m_hPollingThread)
-		m_hPollingEvent.Set();
+	if (m_hPollingConn) {
+		Netlib_Shutdown(m_hPollingConn);
+		m_hPollingConn = 0;
+	}
 }
 
 void CSkypeProto::PushRequest(AsyncHttpRequest *request)
@@ -100,6 +104,7 @@ MHttpResponse* CSkypeProto::DoSend(AsyncHttpRequest *pReq)
 
 	switch (pReq->m_host) {
 	case HOST_API:
+	case HOST_PEOPLE:
 	case HOST_CONTACTS:
 		if (m_szApiToken)
 			pReq->AddHeader((pReq->m_host == HOST_CONTACTS) ? "X-SkypeToken" : "X-Skypetoken", m_szApiToken);
