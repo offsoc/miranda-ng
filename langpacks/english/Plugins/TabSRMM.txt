@@ -43,7 +43,7 @@
 [Names to highlight, wildcards like * and ? are allowed, separate multiple entries with spaces]
 [Highlight message text]
 [Enable highlighting for message text]
-[Words to highlight, wildcards like * and ? are allowed, separate multiple entries with spaces. Leave it empty if you only want to highlight your own nickname.]
+[Words to highlight, wildcards like * and ? are allowed, separate multiple entries with spaces.]
 [Highlight messages containing my own nickname]
 ;file \plugins\TabSRMM\res\msgwindow.rc
 [&Retry]
@@ -463,7 +463,6 @@
 [Flash window when someone speaks]
 [Flash window when a word is highlighted]
 [Create tabs or windows for highlight events]
-[Activate chat window on highlight]
 [Show list of users in the chat room]
 [Colorize nicknames in member list (you need to adjust colors)]
 [Show topic as status message on the contact list]
@@ -633,8 +632,6 @@
 [Saved TabSRMM avatars]
 [Group chat logs root]
 [Typing notification]
-;file \plugins\TabSRMM\src\modplus.cpp
-[Insert [img] tag / surround selected text with [img][/img]]
 ;file \plugins\TabSRMM\src\msgdialog.cpp
 [Add this contact permanently to your contact list]
 [Do not add this contact permanently]
@@ -798,7 +795,6 @@
 [Window layout tweaks]
 ;file \plugins\TabSRMM\src\msgs.cpp
 [Message Log options]
-[Image tag]
 [Quote text]
 [Save and close]
 [Smiley button]

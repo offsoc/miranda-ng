@@ -38,23 +38,16 @@ static MCONTACT FindRoom(const char *pszModule, const wchar_t *pszRoom)
 
 MCONTACT AddRoom(const char *pszModule, const wchar_t *pszRoom, const wchar_t *pszDisplayName, int iType)
 {
-	ptrW pwszGroup(Chat_GetGroup());
-	if (mir_wstrlen(pwszGroup)) {
-		MGROUP hGroup = Clist_GroupExists(pwszGroup);
-		if (hGroup == 0) {
-			hGroup = Clist_GroupCreate(0, pwszGroup);
-			if (hGroup)
-				Clist_GroupSetExpanded(hGroup, 1);
-		}
-	}
+	auto wszGroup(Chat_GetGroup());
+	bool bNeedGroup = Chat::bUseGroup && !wszGroup.IsEmpty();
 
 	MCONTACT hContact = FindRoom(pszModule, pszRoom);
 	if (hContact) {
 		// contact exists, let's assign the standard group name if it's missing
-		if (mir_wstrlen(pwszGroup)) {
+		if (bNeedGroup) {
 			ptrW pwszOldGroup(Clist_GetGroup(hContact));
 			if (!mir_wstrlen(pwszOldGroup))
-				Clist_SetGroup(hContact, pwszGroup);
+				Clist_SetGroup(hContact, wszGroup);
 		}
 
 		db_set_w(hContact, pszModule, "Status", ID_STATUS_OFFLINE);
@@ -67,7 +60,18 @@ MCONTACT AddRoom(const char *pszModule, const wchar_t *pszRoom, const wchar_t *p
 		return 0;
 
 	Proto_AddToContact(hContact, pszModule);
-	Clist_SetGroup(hContact, pwszGroup);
+
+	// create the 'Chat rooms' group only if needed
+	if (bNeedGroup) {
+		MGROUP hGroup = Clist_GroupExists(wszGroup);
+		if (hGroup == 0) {
+			hGroup = Clist_GroupCreate(0, wszGroup);
+			if (hGroup)
+				Clist_GroupSetExpanded(hGroup, 1);
+		}
+
+		Clist_SetGroup(hContact, wszGroup);
+	}
 
 	if (auto *pa = Proto_GetAccount(pszModule)) {
 		if (MBaseProto *pd = g_arProtos.find((MBaseProto *)&pa->szProtoName)) {
@@ -84,11 +88,11 @@ MCONTACT AddRoom(const char *pszModule, const wchar_t *pszRoom, const wchar_t *p
 	return hContact;
 }
 
-BOOL SetOffline(MCONTACT hContact, BOOL)
+BOOL SetOffline(MCONTACT hContact)
 {
 	if (hContact) {
 		char *szProto = Proto_GetBaseAccountName(hContact);
-		db_set_w(hContact, szProto, "ApparentMode", 0);
+		db_unset(hContact, szProto, "ApparentMode");
 		db_set_w(hContact, szProto, "Status", ID_STATUS_OFFLINE);
 		return TRUE;
 	}
@@ -96,7 +100,7 @@ BOOL SetOffline(MCONTACT hContact, BOOL)
 	return FALSE;
 }
 
-BOOL SetAllOffline(BOOL, const char *pszModule)
+BOOL SetAllOffline(const char *pszModule)
 {
 	for (auto &hContact : Contacts(pszModule)) {
 		char *szProto = Proto_GetBaseAccountName(hContact);
@@ -104,7 +108,7 @@ BOOL SetAllOffline(BOOL, const char *pszModule)
 			continue;
 		
 		if (Contact::IsGroupChat(hContact, szProto)) {
-			db_set_w(hContact, szProto, "ApparentMode", 0);
+			db_unset(hContact, szProto, "ApparentMode");
 			db_set_w(hContact, szProto, "Status", ID_STATUS_OFFLINE);
 		}
 	}
@@ -123,11 +127,7 @@ int RoomDoubleclicked(WPARAM hContact, LPARAM)
 	if (!Contact::IsGroupChat(hContact, szProto))
 		return 0;
 
-	ptrW roomid(Contact::GetInfo(CNF_UNIQUEID, hContact, szProto));
-	if (roomid == nullptr)
-		return 0;
-
-	SESSION_INFO *si = Chat_Find(roomid, szProto);
+	SESSION_INFO *si = Chat_Find(hContact, szProto);
 	if (si) {
 		if (si->pDlg != nullptr && !Clist_GetEvent(hContact, 0) && IsWindowVisible(si->pDlg->GetHwnd()) && !IsIconic(si->pDlg->GetHwnd())) {
 			si->pDlg->CloseTab();

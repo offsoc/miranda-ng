@@ -227,6 +227,9 @@ static bool validInterfaceList(const MUUID *piface)
 
 bool pluginEntry::checkAPI(wchar_t *plugin)
 {
+	if (bHasBasicApi)
+		return true;
+
 	SetErrorMode(SEM_FAILCRITICALERRORS); // disable error messages
 	HINSTANCE h = LoadLibrary(plugin);
 	SetErrorMode(0);							  // reset the system default
@@ -234,16 +237,17 @@ bool pluginEntry::checkAPI(wchar_t *plugin)
 		return false;
 
 	// dll must register itself during LoadLibrary
-	CMPluginBase &ppb = GetPluginByInstance(h);
-	if (ppb.getInst() != h) {
+	if (!g_pLastPlugin || g_pLastPlugin->getInst() != h) {
 LBL_Error:
 		bFailed = true;
 		clear();
 		FreeLibrary(h);
+		g_pLastPlugin = nullptr;
 		return false;
 	}
 
-	m_pPlugin = &ppb;
+	g_arPlugins.insert(g_pLastPlugin);
+	m_pPlugin = g_pLastPlugin; g_pLastPlugin = nullptr;
 	pfnLoad = (Miranda_Plugin_Load)GetProcAddress(h, "Load");
 	pfnUnload = (Miranda_Plugin_Unload)GetProcAddress(h, "Unload");
 	
@@ -260,7 +264,7 @@ LBL_Error:
 	if (!validInterfaceList(m_pInterfaces))
 		goto LBL_Error;
 
-	const PLUGININFOEX &pInfo = ppb.getInfo();
+	const PLUGININFOEX &pInfo = m_pPlugin->getInfo();
 	if (pInfo.cbSize != sizeof(PLUGININFOEX))
 		goto LBL_Error;
 

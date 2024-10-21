@@ -19,7 +19,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 enum class BBCODE
 {
-	BOLD, ITALIC, STRIKE, UNDERLINE, URL, CODE
+	BOLD, ITALIC, STRIKE, UNDERLINE, URL, CODE, QUOTE
 };
 
 struct
@@ -30,12 +30,13 @@ struct
 }
 static bbCodes[] =
 {
-	{ BBCODE::BOLD,      L"[b]",    L"[/b]",    3, 4 },
-	{ BBCODE::ITALIC,    L"[i]",    L"[/i]",    3, 4 },
-	{ BBCODE::STRIKE,    L"[s]",    L"[/s]",    3, 4 },
-	{ BBCODE::UNDERLINE, L"[u]",    L"[/u]",    3, 4 },
-	{ BBCODE::URL,       L"[url]",  L"[/url]",  5, 6 },
-	{ BBCODE::CODE,      L"[code]", L"[/code]", 6, 7 },
+	{ BBCODE::BOLD,      L"[b]",     L"[/b]",     3, 4 },
+	{ BBCODE::ITALIC,    L"[i]",     L"[/i]",     3, 4 },
+	{ BBCODE::STRIKE,    L"[s]",     L"[/s]",     3, 4 },
+	{ BBCODE::UNDERLINE, L"[u]",     L"[/u]",     3, 4 },
+	{ BBCODE::URL,       L"[url]",   L"[/url]",   5, 6 },
+	{ BBCODE::CODE,      L"[code]",  L"[/code]",  6, 7 },
+	{ BBCODE::QUOTE,     L"[quote]", L"[/quote]", 7, 8 },
 };
 
 TD::object_ptr<TD::formattedText> formatBbcodes(const char *pszText)
@@ -68,6 +69,7 @@ TD::object_ptr<TD::formattedText> formatBbcodes(const char *pszText)
 				case BBCODE::URL: pNew = TD::make_object<TD::textEntityTypeUrl>(); break;
 				case BBCODE::CODE: pNew = TD::make_object<TD::textEntityTypeCode>(); break;
 				case BBCODE::BOLD: pNew = TD::make_object<TD::textEntityTypeBold>(); break;
+				case BBCODE::QUOTE: pNew = TD::make_object<TD::textEntityTypeBlockQuote>(); break;
 				case BBCODE::ITALIC: pNew = TD::make_object<TD::textEntityTypeItalic>(); break;
 				case BBCODE::STRIKE: pNew = TD::make_object<TD::textEntityTypeStrikethrough>(); break;
 				case BBCODE::UNDERLINE: pNew = TD::make_object<TD::textEntityTypeUnderline>(); break;
@@ -82,34 +84,30 @@ TD::object_ptr<TD::formattedText> formatBbcodes(const char *pszText)
 	return res;
 }
 
-static CMStringA getFormattedText(TD::object_ptr<TD::formattedText> &pText)
+CMStringA CTelegramProto::GetFormattedText(TD::object_ptr<TD::formattedText> &pText)
 {
-	if (pText->get_id() == TD::formattedText::ID) {
-		CMStringW ret(Utf2T(pText->text_.c_str()));
-		unsigned offset = 0;
+	CMStringW ret(Utf2T(pText->text_.c_str()));
+	unsigned offset = 0;
 
-		for (auto &it : pText->entities_) {
-			int iCode;
-			switch (it->type_->get_id()) {
-			case TD::textEntityTypeBold::ID: iCode = 0; break;
-			case TD::textEntityTypeItalic::ID: iCode = 1; break;
-			case TD::textEntityTypeStrikethrough::ID: iCode = 2; break;
-			case TD::textEntityTypeUnderline::ID: iCode = 3; break;
-			case TD::textEntityTypeUrl::ID: iCode = 4; break;
-			case TD::textEntityTypeCode::ID: iCode = 5; break;
-			default:
-				continue;
-			}
-
-			auto &bb = bbCodes[iCode];
-			ret.Insert(offset + it->offset_ + it->length_, bb.end);
-			ret.Insert(offset + it->offset_, bb.begin);
-			offset += bb.len1 + bb.len2;
+	for (auto &it : pText->entities_) {
+		int iCode;
+		switch (it->type_->get_id()) {
+		case TD::textEntityTypeBold::ID: iCode = 0; break;
+		case TD::textEntityTypeItalic::ID: iCode = 1; break;
+		case TD::textEntityTypeStrikethrough::ID: iCode = 2; break;
+		case TD::textEntityTypeUnderline::ID: iCode = 3; break;
+		case TD::textEntityTypeCode::ID: iCode = 5; break;
+		case TD::textEntityTypeBlockQuote::ID: iCode = 6; break;
+		default:
+			continue;
 		}
-		return T2Utf(ret).get();
+
+		auto &bb = bbCodes[iCode];
+		ret.Insert(offset + it->offset_ + it->length_, bb.end);
+		ret.Insert(offset + it->offset_, bb.begin);
+		offset += bb.len1 + bb.len2;
 	}
-	
-	return "";
+	return T2Utf(ret).get();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -166,6 +164,20 @@ TG_FILE_REQUEST::Type AutoDetectType(const wchar_t *pwszFilename)
 	return TG_FILE_REQUEST::FILE;
 }
 
+TD::int53 getReplyId(const TD::MessageReplyTo *pReply)
+{
+	if (pReply) {
+		switch (pReply->get_id()) {
+		case TD::messageReplyToMessage::ID:
+			return ((TD::messageReplyToMessage *)pReply)->message_id_;
+
+		case TD::inputMessageReplyToExternalMessage::ID:
+			return ((TD::inputMessageReplyToExternalMessage *)pReply)->message_id_;
+		}
+	}
+	return 0;
+}
+
 CMStringW TG_USER::getDisplayName() const
 {
 	if (hContact != 0) {
@@ -191,6 +203,32 @@ void CTelegramProto::RemoveFromClist(TG_USER *pUser)
 			if (pUser->id == GetId(cc, DBKEY_OWNER))
 				Contact::RemoveFromList(cc);
 	}
+}
+
+void CTelegramProto::MarkRead(MCONTACT hContact, const CMStringA &szMaxId, bool bSent)
+{
+	for (MEVENT hEvent = db_event_firstUnread(hContact); hEvent; hEvent = db_event_next(hContact, hEvent)) {
+		DB::EventInfo dbei(hEvent, false);
+		if (!dbei || !dbei.szId)
+			continue;
+
+		if (dbei.szId > szMaxId)
+			break;
+
+		bool isSent = (dbei.flags & DBEF_SENT) != 0;
+		if (isSent != bSent)
+			continue;
+
+		if (!dbei.markedRead())
+			db_event_markRead(hContact, hEvent, true);
+	}
+}
+
+int CTelegramProto::GetDefaultMute(const TG_USER *pUser)
+{
+	if (pUser->isGroupChat)
+		return (pUser->isChannel) ? m_iDefaultMuteChannel : m_iDefaultMuteGroup;
+	return m_iDefaultMutePrivate;
 }
 
 MCONTACT CTelegramProto::GetRealContact(const TG_USER *pUser)
@@ -411,11 +449,6 @@ bool CTelegramProto::GetGcUserId(TG_USER *pUser, const TD::message *pMsg, char *
 
 bool CTelegramProto::GetMessageFile(const EmbeddedFile &F, TG_FILE_REQUEST::Type iType, const TD::file *pFile, const char *pszFileName, const char *pszCaption)
 {
-	if (pFile->get_id() != TD::file::ID) {
-		debugLogA("Document contains unsupported type %d, exiting", pFile->get_id());
-		return false;
-	}
-
 	auto *pRequest = new TG_FILE_REQUEST(iType, pFile->id_, pFile->remote_->id_.c_str());
 	pRequest->m_fileName = Utf2T(pszFileName);
 	pRequest->m_fileSize = pFile->size_;
@@ -436,16 +469,18 @@ bool CTelegramProto::GetMessageFile(const EmbeddedFile &F, TG_FILE_REQUEST::Type
 		dbei.flags |= DBEF_SENT;
 	if (!F.pUser->bInited || F.bRead)
 		dbei.flags |= DBEF_READ;
-	if (F.pMsg->reply_to_message_id_) {
-		_i64toa(F.pMsg->reply_to_message_id_, szReplyId, 10);
+	if (auto iReplyId = getReplyId(F.pMsg->reply_to_.get())) {
+		_i64toa(iReplyId, szReplyId, 10);
 		dbei.szReplyId = szReplyId;
 	}
 
 	if (dbei) {
-		DB::FILE_BLOB blob(dbei);
-		OnReceiveOfflineFile(blob);
-		blob.write(dbei);
-		db_event_edit(dbei.getEvent(), &dbei, true);
+		if (!Ignore_IsIgnored(pRequest->m_hContact, IGNOREEVENT_FILE)) {
+			DB::FILE_BLOB blob(dbei);
+			OnReceiveOfflineFile(dbei, blob);
+			blob.write(dbei);
+			db_event_edit(dbei.getEvent(), &dbei, true);
+		}
 		delete pRequest;
 	}
 	else ProtoChainRecvFile(pRequest->m_hContact, DB::FILE_BLOB(pRequest, pszFileName, F.szBody), dbei);
@@ -477,6 +512,7 @@ CMStringA CTelegramProto::GetMessageSticker(const TD::file *pFile, const char *p
 	auto *pFileId = pFile->remote_->unique_id_.c_str();
 
 	auto *pRequest = new TG_FILE_REQUEST(TG_FILE_REQUEST::AVATAR, pFile->id_, pFileId);
+	pRequest->m_isSmiley = true;
 	pRequest->m_destPath = GetAvatarPath() + L"\\Stickers";
 	CreateDirectoryW(pRequest->m_destPath, 0);
 
@@ -528,20 +564,20 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 	if (auto *pForward = pMsg->forward_info_.get()) {
 		CMStringW wszNick;
 		switch (pForward->origin_->get_id()) {
-		case TD::messageForwardOriginUser::ID:
-			if (auto *p = FindUser(((TD::messageForwardOriginUser *)pForward->origin_.get())->sender_user_id_))
+		case TD::messageOriginUser::ID:
+			if (auto *p = FindUser(((TD::messageOriginUser *)pForward->origin_.get())->sender_user_id_))
 				wszNick = p->getDisplayName();
 			break;
-		case TD::messageForwardOriginChat::ID:
-			if (auto *p = FindChat(((TD::messageForwardOriginChat *)pForward->origin_.get())->sender_chat_id_))
+		case TD::messageOriginChat::ID:
+			if (auto *p = FindChat(((TD::messageOriginChat *)pForward->origin_.get())->sender_chat_id_))
 				wszNick = p->getDisplayName();
 			break;
-		case TD::messageForwardOriginHiddenUser::ID:
-			if (auto *p = (TD::messageForwardOriginHiddenUser *)pForward->origin_.get())
+		case TD::messageOriginHiddenUser::ID:
+			if (auto *p = (TD::messageOriginHiddenUser *)pForward->origin_.get())
 				wszNick = Utf2T(p->sender_name_.c_str());
 			break;
-		case TD::messageForwardOriginChannel::ID:
-			if (auto *p = FindChat(((TD::messageForwardOriginChannel *)pForward->origin_.get())->chat_id_))
+		case TD::messageOriginChannel::ID:
+			if (auto *p = FindChat(((TD::messageOriginChannel *)pForward->origin_.get())->chat_id_))
 				wszNick = p->getDisplayName();
 			break;
 		default:
@@ -587,8 +623,14 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 		break;
 
 	case TD::messageChatChangeTitle::ID:
-		if (auto *pDoc = (TD::messageChatChangeTitle *)pBody)
-			GcChangeTopic(pUser, Utf2T(pDoc->title_.c_str()));
+		if (auto *pDoc = (TD::messageChatChangeTitle *)pBody) {
+			if (pUser->m_si)
+				Chat_ChangeSessionName(pUser->m_si, Utf2T(pDoc->title_.c_str()));
+			else
+				setUString(pUser->hContact, "Nick", pDoc->title_.c_str());
+
+			ret.AppendFormat(TranslateU("Chat name was changed to %s"), pDoc->title_.c_str());
+		}
 		break;
 
 	case TD::messagePhoto::ID:
@@ -693,15 +735,21 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 			}
 			
 			if (m_bSmileyAdd) {
-				const char *pwszFileExt;
-				switch (pSticker->format_->get_id()) {
-				case TD::stickerFormatTgs::ID: pwszFileExt = "tga"; break;
-				case TD::stickerFormatWebm::ID: pwszFileExt = "webm"; break;
-				case TD::stickerFormatWebp::ID: pwszFileExt = "webp"; break;
-				default:pwszFileExt = "jpeg"; break;
+				if (pSticker->thumbnail_.get()) {
+					const char *pwszFileExt;
+					switch (pSticker->format_->get_id()) {
+					case TD::stickerFormatTgs::ID: pwszFileExt = "tga"; break;
+					case TD::stickerFormatWebm::ID: pwszFileExt = "webm"; break;
+					case TD::stickerFormatWebp::ID: pwszFileExt = "webp"; break;
+					default:
+						pwszFileExt = "jpeg"; break;
+					}
+					ret = GetMessageSticker(pSticker->thumbnail_->file_.get(), pwszFileExt);
 				}
-
-				ret = GetMessageSticker(pSticker->thumbnail_->file_.get(), pwszFileExt);
+				else {
+					debugLogA("Strange sticker without preview");
+					ret.Append(pSticker->emoji_.c_str());
+				}
 			}
 			else ret.AppendFormat("%s: %s", TranslateU("SmileyAdd plugin required to support stickers"), pSticker->emoji_.c_str());
 		}
@@ -710,35 +758,44 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 	case TD::messageInvoice::ID:
 		if (auto *pInvoice = ((TD::messageInvoice *)pBody)) {
 			ret.Format("%s: %.2lf %s", TranslateU("You received an invoice"), double(pInvoice->total_amount_)/100.0, pInvoice->currency_.c_str());
-			if (!pInvoice->title_.empty())
-				ret.AppendFormat("\r\n%s: %s", TranslateU("Title"), pInvoice->title_.c_str());
-			if (auto pszText = getFormattedText(pInvoice->description_))
+			if (auto pszText = GetFormattedText(pInvoice->paid_media_caption_))
 				ret.AppendFormat("\r\n%s", pszText.c_str());
 		}
 		break;
 
 	case TD::messageText::ID:
 		if (auto *pText = ((TD::messageText *)pBody)) {
-			ret = getFormattedText(pText->text_);
+			ret = GetFormattedText(pText->text_);
 
-			if (auto *pWeb = pText->web_page_.get()) {
-				ret.AppendFormat("\r\n[url]%s[/url]", pWeb->embed_url_.c_str());
+			auto *pWeb = pText->link_preview_.get();
+			if (pWeb && m_bIncludePreviews) {
+				CMStringA szDescr;
 
-				if (pWeb->photo_) {
+				if (!pWeb->site_name_.empty())
+					szDescr.AppendFormat("%s\r\n", pWeb->site_name_.c_str());
+
+				if (!pWeb->title_.empty())
+					szDescr.AppendFormat("[b]%s[/b]\r\n", pWeb->title_.c_str());
+
+				if (auto szText = GetFormattedText(pWeb->description_))
+					szDescr.AppendFormat("%s\r\n", szText.c_str());
+
+				if (pWeb->type_->get_id() == TD::linkPreviewTypePhoto::ID) {
+					auto *pPhoto = ((TD::linkPreviewTypePhoto *)pWeb->type_.get())->photo_.get();
 					const TD::photoSize *pSize = nullptr;
-					for (auto &it : pWeb->photo_->sizes_)
+					for (auto &it : pPhoto->sizes_)
 						if (it->type_ == "m")
 							pSize = it.get();
 
 					if (pSize == nullptr)
-						pSize = pWeb->photo_->sizes_[0].get();
+						pSize = pPhoto->sizes_[0].get();
 
 					if (auto szText = GetMessagePreview(pSize->photo_.get()))
-						ret.AppendFormat("\r\n[img=%s][/img]", szText.c_str());
+						szDescr.AppendFormat("[img=%s][/img]\r\n", szText.c_str());
 				}
 
-				if (auto szText = getFormattedText(pWeb->description_))
-					ret.AppendFormat("\r\n%s", szText.c_str());
+				if (!szDescr.IsEmpty())
+					ret += "\r\n[quote]" + szDescr.Trim() + "[/quote]";
 			}
 		}
 		break;

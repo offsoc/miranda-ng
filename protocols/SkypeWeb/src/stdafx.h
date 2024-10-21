@@ -57,6 +57,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <m_file.h>
 
 struct CSkypeProto;
+typedef CProtoDlgBase<CSkypeProto> CSkypeDlg;
 
 extern char g_szMirVer[];
 extern HANDLE g_hCallEvent;
@@ -108,9 +109,9 @@ struct AsyncHttpRequest : public MTHttpRequest<CSkypeProto>
 	AsyncHttpRequest(int type, SkypeHost host, LPCSTR url = nullptr, MTHttpRequestHandler pFunc = nullptr);
 
 	void AddRegister(CSkypeProto *ppro);
+	void AddAuthentication(CSkypeProto *ppro);
 };
 
-#include "requests/avatars.h"
 #include "requests/capabilities.h"
 #include "requests/chatrooms.h"
 #include "requests/contacts.h"

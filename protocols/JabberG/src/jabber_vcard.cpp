@@ -379,14 +379,7 @@ public:
 		ofn.Flags = OFN_FILEMUSTEXIST | OFN_DONTADDTORECENT;
 		szFileName[0] = '\0';
 		if (GetOpenFileName(&ofn)) {
-			struct _stat st;
-			HBITMAP hNewBitmap;
-
 			ppro->debugLogW(L"File selected is %s", szFileName);
-			if (_wstat(szFileName, &st) < 0 || st.st_size > 40 * 1024) {
-				MessageBox(m_hwnd, TranslateT("Only JPG, GIF, and BMP image files smaller than 40 KB are supported."), TranslateT("Jabber vCard"), MB_OK | MB_SETFOREGROUND);
-				return;
-			}
 
 			wchar_t szTempFileName[MAX_PATH], szTempPath[MAX_PATH];
 			if (GetTempPath(_countof(szTempPath), szTempPath) <= 0)
@@ -395,7 +388,7 @@ public:
 			if (GetTempFileName(szTempPath, L"jab", 0, szTempFileName) > 0) {
 				ppro->debugLogW(L"Temp file = %s", szTempFileName);
 				if (CopyFile(szFileName, szTempFileName, FALSE) == TRUE) {
-					if ((hNewBitmap = Bitmap_Load(szTempFileName)) != nullptr) {
+					if (HBITMAP hNewBitmap = Bitmap_Load(szTempFileName)) {
 						if (hBitmap) {
 							DeleteObject(hBitmap);
 							DeleteFile(ppro->m_szPhotoFileName);
@@ -908,12 +901,12 @@ void CJabberProto::SetServerVcard(bool bPhotoChanged, wchar_t *szPhotoFileName)
 	n << XCHILD("HOME");
 	AppendVcardFromDB(n, "STREET", "Street");
 	AppendVcardFromDB(n, "EXTADR", "Street2");
-	AppendVcardFromDB(n, "EXTADD", "Street2");	// for compatibility with client using old vcard format
+	AppendVcardFromDB(n, "EXTADD", "Street2");	// for compatibility with a client using old vcard format
 	AppendVcardFromDB(n, "LOCALITY", "City");
 	AppendVcardFromDB(n, "REGION", "State");
 	AppendVcardFromDB(n, "PCODE", "ZIP");
 	AppendVcardFromDB(n, "CTRY", "Country");
-	AppendVcardFromDB(n, "COUNTRY", "Country");	// for compatibility with client using old vcard format
+	AppendVcardFromDB(n, "COUNTRY", "Country");	// for compatibility with a client using old vcard format
 	if (XmlGetChildCount(n) == 1)
 		v->DeleteChild(n);
 
@@ -921,12 +914,12 @@ void CJabberProto::SetServerVcard(bool bPhotoChanged, wchar_t *szPhotoFileName)
 	n << XCHILD("WORK");
 	AppendVcardFromDB(n, "STREET", "CompanyStreet");
 	AppendVcardFromDB(n, "EXTADR", "CompanyStreet2");
-	AppendVcardFromDB(n, "EXTADD", "CompanyStreet2");	// for compatibility with client using old vcard format
+	AppendVcardFromDB(n, "EXTADD", "CompanyStreet2");	// for compatibility with a client using old vcard format
 	AppendVcardFromDB(n, "LOCALITY", "CompanyCity");
 	AppendVcardFromDB(n, "REGION", "CompanyState");
 	AppendVcardFromDB(n, "PCODE", "CompanyZIP");
 	AppendVcardFromDB(n, "CTRY", "CompanyCountry");
-	AppendVcardFromDB(n, "COUNTRY", "CompanyCountry");	// for compatibility with client using old vcard format
+	AppendVcardFromDB(n, "COUNTRY", "CompanyCountry");	// for compatibility with a client using old vcard format
 	if (XmlGetChildCount(n) == 1)
 		v->DeleteChild(n);
 

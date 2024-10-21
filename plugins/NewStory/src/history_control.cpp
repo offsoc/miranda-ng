@@ -88,8 +88,12 @@ void NewstoryListData::OnContextMenu(int index, POINT pt)
 	Menu_DestroyNestedMenu(hMenu);
 }
 
-void NewstoryListData::OnResize(int newWidth, int newHeight)
+void NewstoryListData::OnResize()
 {
+	RECT rc;
+	GetClientRect(m_hwnd, &rc);
+	int newWidth = rc.right - rc.left, newHeight = rc.bottom - rc.top;
+
 	if (dib.width() < newWidth || dib.height() < newHeight) {
 		dib.destroy();
 		dib.create(newWidth, newHeight, true);
@@ -110,7 +114,7 @@ void NewstoryListData::OnResize(int newWidth, int newHeight)
 	}
 
 	if (bDraw)
-		InvalidateRect(m_hwnd, 0, FALSE);
+		ScheduleDraw();
 }
 
 void NewstoryListData::AddChatEvent(SESSION_INFO *si, const LOGINFO *lin)
@@ -125,11 +129,16 @@ void NewstoryListData::AddChatEvent(SESSION_INFO *si, const LOGINFO *lin)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-void NewstoryListData::AddEvent(MCONTACT hContact, MEVENT hFirstEvent, int iCount)
+void NewstoryListData::AddEvent(MCONTACT hContact, MEVENT hFirstEvent, int iCount, bool bNew)
 {
 	ScheduleDraw();
-	items.addEvent(this, hContact, hFirstEvent, iCount);
+	items.addEvent(this, hContact, hFirstEvent, iCount, bNew);
 	totalCount = items.getCount();
+
+	if (iCount == -1)
+		if (auto *szProto = Proto_GetBaseAccountName(hContact))
+			if (auto hEvent = db_get_dw(hContact, szProto, "RemoteRead"))
+				RemoteRead(hContact, hEvent);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -223,8 +232,6 @@ void NewstoryListData::BeginEditItem()
 		return;
 
 	ItemData *item = LoadItem(caret);
-	if (item->dbe.eventType != EVENTTYPE_MESSAGE)
-		return;
 
 	RECT rc; GetClientRect(m_hwnd, &rc);
 	int height = rc.bottom - rc.top, width = rc.right - rc.left;
@@ -257,6 +264,9 @@ void NewstoryListData::BeginEditItem()
 	mir_subclassWindow(hwndEditBox, HistoryEditWndProc);
 	SendMessage(hwndEditBox, WM_SETFONT, (WPARAM)g_fontTable[fontid].hfnt, 0);
 	SendMessage(hwndEditBox, EM_SETMARGINS, EC_RIGHTMARGIN, 100);
+	if (item->dbe.eventType != EVENTTYPE_MESSAGE || !(item->dbe.flags & DBEF_SENT))
+		SendMessage(hwndEditBox, EM_SETREADONLY, TRUE, 0);
+
 	ShowWindow(hwndEditBox, SW_SHOW);
 	SetFocus(hwndEditBox);
 	SetForegroundWindow(hwndEditBox);
@@ -340,7 +350,7 @@ public:
 	{
 		if (char *szProto = Proto_GetBaseAccountName(hContact)) {
 			bDelHistory = Proto_CanDeleteHistory(szProto, hContact);
-			bForEveryone = (CallProtoService(szProto, PS_GETCAPS, PFLAGNUM_4, 0) & PF4_DELETEFORALL) != 0;
+			bForEveryone = (CallProtoService(szProto, PS_GETCAPS, PFLAGNUM_4, hContact) & PF4_DELETEFORALL) != 0;
 		}
 	}
 
@@ -349,8 +359,14 @@ public:
 		chkDelHistory.SetState(bDelHistory);
 		chkDelHistory.Enable(bDelHistory);
 
-		chkForEveryone.SetState(false);
-		chkForEveryone.Enable(bDelHistory && bForEveryone);
+		if (Contact::IsGroupChat(m_hContact)) {
+			chkForEveryone.SetState(true);
+			chkForEveryone.Disable();
+		}
+		else {
+			chkForEveryone.SetState(false);
+			chkForEveryone.Enable(bDelHistory && bForEveryone);
+		}
 
 		if (m_iNumEvents > 1) {
 			CMStringW wszText(FORMAT, TranslateT("Do you really want to delete selected items (%d)?"), m_iNumEvents);
@@ -423,6 +439,30 @@ void NewstoryListData::DeleteItems(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+void NewstoryListData::DeliverEvent(MCONTACT hContact, MEVENT hEvent)
+{
+	bool isChanged = false, isActive = false;
+
+	for (int i = totalCount - 1; i >= 0; i--) {
+		auto *pItem = GetItem(i);
+		if (pItem->dbe.hContact != hContact || !(pItem->dbe.flags & DBEF_SENT))
+			continue;
+
+		if (pItem->dbe.getEvent() == hEvent)
+			isActive = true;
+
+		if (isActive && pItem->m_bNew && !pItem->m_bDelivered) {
+			pItem->m_bDelivered = true;
+			pItem->savedHeight = -1;
+			pItem->calcHeight(cachedWindowWidth);
+			isChanged = true;
+		}
+	}
+
+	if (isChanged)
+		InvalidateRect(m_hwnd, 0, FALSE);
+}
 
 void NewstoryListData::Download(int options)
 {
@@ -693,7 +733,7 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 
 		if (pItem->m_bHighlighted) {
 			webPage.clText = g_fontTable[FONT_HIGHLIGHT].cl;
-			webPage.clBack = g_colorTable[COLOR_HIGHLIGHT_BACK].cl;
+			webPage.clBack = g_colorTable[pItem->m_bSelected ? COLOR_SELBACK : COLOR_HIGHLIGHT_BACK].cl;
 			clLine = g_colorTable[COLOR_FRAME].cl;
 		}
 		else if (pItem->m_bSelected && !bReadOnly) {
@@ -727,7 +767,7 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 		SetBkMode(dib, TRANSPARENT);
 
 		// left offset of icons & text
-		int xPos = 2, yPos = top + 2;
+		int xPos = 2, yPos = top + 2, xRight = 0;
 
 		if (!bReadOnly) {
 			HICON hIcon;
@@ -771,7 +811,7 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 			// Finished icon
 			if (pItem->m_bOfflineDownloaded != 0) {
 				if (pItem->completed())
-					DrawIconEx(dib, cachedWindowWidth - 20, yPos, g_plugin.getIcon(IDI_OK), 16, 16, 0, 0, DI_NORMAL);
+					DrawIconEx(dib, cachedWindowWidth - (xRight = 20), yPos, g_plugin.getIcon(IDI_OK), 16, 16, 0, 0, DI_NORMAL);
 				else {
 					HPEN hpn = (HPEN)SelectObject(dib, CreatePen(PS_SOLID, 4, g_colorTable[COLOR_PROGRESS].cl));
 					MoveToEx(dib, rc.left, rc.bottom - 4, 0);
@@ -779,12 +819,27 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 					DeleteObject(SelectObject(dib, hpn));
 				}
 			}
+
+			// Delivered & remote read icons
+			if (pItem->m_bRemoteRead)
+				DrawIconEx(dib, cachedWindowWidth - (xRight = 20), yPos, g_plugin.getIcon(IDI_REMOTEREAD), 16, 16, 0, 0, DI_NORMAL);
+			else if (pItem->m_bDelivered)
+				DrawIconEx(dib, cachedWindowWidth - (xRight = 20), yPos, g_plugin.getIcon(IDI_DELIVERED), 16, 16, 0, 0, DI_NORMAL);
 		}
 
 		// draw html itself
-		litehtml::position clip(xPos, yPos, cachedWindowWidth - xPos, iItemHeigth);
-		if (pItem->m_doc)
-			pItem->m_doc->draw((UINT_PTR)dib.hdc(), xPos, yPos + iOffsetY, &clip);
+		litehtml::position clip(xPos, yPos, cachedWindowWidth - xPos - xRight, iItemHeigth);
+		if (auto &pDoc = pItem->m_doc) {
+			if (auto pBody = pDoc->root()->select_one("body")) {
+				litehtml::background back = pBody->css().get_bg();
+				back.m_color = litehtml::web_color(GetRValue(webPage.clBack), GetGValue(webPage.clBack), GetBValue(webPage.clBack));
+				pBody->css_w().set_bg(back);
+
+				pBody->css_w().set_color(litehtml::web_color(GetRValue(webPage.clText), GetGValue(webPage.clText), GetBValue(webPage.clText)));
+			}
+
+			pDoc->draw((UINT_PTR)dib.hdc(), xPos, yPos + iOffsetY, &clip);
+		}
 
 		// draw border
 		HPEN hpn = (HPEN)SelectObject(dib, CreatePen(PS_SOLID, 1, clLine));
@@ -811,6 +866,18 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 	if (g_plugin.bDrawEdge) {
 		RECT rc = { 0, 0, cachedWindowWidth, cachedWindowHeight };
 		DrawEdge(dib, &rc, BDR_SUNKENOUTER, BF_RECT);
+	}
+}
+
+void NewstoryListData::Quote()
+{
+	if (pMsgDlg) {
+		CMStringW wszText(GatherSelected(true));
+		wszText.TrimRight();
+		RemoveBbcodes(wszText);
+		pMsgDlg->SetMessageText(Srmm_Quote(wszText));
+
+		SetFocus(pMsgDlg->GetInput());
 	}
 }
 
@@ -852,16 +919,31 @@ void NewstoryListData::RecalcScrollBar()
 	}
 }
 
-void NewstoryListData::Quote()
+void NewstoryListData::RemoteRead(MCONTACT hContact, MEVENT hEvent)
 {
-	if (pMsgDlg) {
-		CMStringW wszText(GatherSelected(true));
-		wszText.TrimRight();
-		RemoveBbcodes(wszText);
-		pMsgDlg->SetMessageText(Srmm_Quote(wszText));
+	bool isChanged = false, isActive = false;
 
-		SetFocus(pMsgDlg->GetInput());
+	for (int i = totalCount-1; i >= 0; i--) {
+		auto *pItem = GetItem(i);
+		if (!pItem->m_bLoaded)
+			pItem->fetch();
+
+		if (pItem->dbe.hContact != hContact || !(pItem->dbe.flags & DBEF_SENT))
+			continue;
+
+		if (pItem->dbe.getEvent() == hEvent)
+			isActive = true;
+
+		if (isActive && pItem->m_bNew && !pItem->m_bRemoteRead) {
+			pItem->m_bRemoteRead = true;
+			pItem->savedHeight = -1;
+			pItem->calcHeight(cachedWindowWidth);
+			isChanged = true;
+		}
 	}
+
+	if (isChanged)
+		InvalidateRect(m_hwnd, 0, FALSE);
 }
 
 void NewstoryListData::Reply()
@@ -882,7 +964,11 @@ void NewstoryListData::ScheduleDraw()
 void NewstoryListData::SetCaret(int idx, bool bEnsureVisible)
 {
 	if (idx < totalCount) {
-		caret = idx;
+		if (idx != caret) {
+			caret = idx;
+			PostMessage(GetParent(m_hwnd), UM_LOCATETIME, caret, 0);
+		}
+
 		if (bEnsureVisible)
 			EnsureVisible(idx);
 	}
@@ -981,6 +1067,13 @@ void NewstoryListData::TryUp(int iCount)
 	if (hContact == 0)
 		return;
 
+	bool hasRead = false;
+	for (int i=0; i < totalCount; i++)
+		if (GetItem(i)->m_bRemoteRead) {
+			hasRead = true;
+			break;
+		}
+
 	int i;
 	for (i = 0; i < iCount; i++) {
 		MEVENT hPrev = (hTopEvent == -1) ? db_event_last(hContact) : db_event_prev(hContact, hTopEvent);
@@ -991,13 +1084,18 @@ void NewstoryListData::TryUp(int iCount)
 		p->pOwner = this;
 		p->dbe.hContact = hContact;
 		p->dbe = hPrev;
+		p->m_bNew = true;
 		totalCount++;
 	}
 
 	ItemData *pPrev = nullptr;
 	for (int j = 0; j < i + 1; j++)
-		if (auto *pItem = GetItem(j))
+		if (auto *pItem = GetItem(j)) {
+			pItem->fetch();
+			if (pItem->dbe.flags & DBEF_SENT)
+				pItem->m_bRemoteRead = hasRead;
 			pPrev = pItem->checkNext(pPrev);
+		}
 
 	caret = 0;
 	CalcBottom();
@@ -1203,10 +1301,6 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		}
 		return TRUE;
 
-	case NSM_ADDEVENT:
-		data->AddEvent(wParam, lParam, 1);
-		break;
-
 	case NSM_SET_OPTIONS:
 		data->bSortAscending = g_plugin.bSortAscending;
 		data->scrollTopPixel = 0;
@@ -1216,7 +1310,15 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 	case UM_ADD_EVENT:
 		if (data->pMsgDlg == nullptr)
-			data->AddEvent(wParam, lParam, 1);
+			data->AddEvent(wParam, lParam, 1, true);
+		break;
+
+	case UM_DELIVER_EVENT:
+		data->DeliverEvent(wParam, lParam);
+		break;
+
+	case UM_REMOTE_READ:
+		data->RemoteRead(wParam, lParam);
 		break;
 
 	case UM_EDIT_EVENT:
@@ -1240,7 +1342,7 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		break;
 
 	case WM_SIZE:
-		data->OnResize(LOWORD(lParam), HIWORD(lParam));
+		data->OnResize();
 		break;
 
 	case WM_COMMAND:
@@ -1426,18 +1528,16 @@ LRESULT CALLBACK NewstoryListWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 			if (wParam & MK_CONTROL) {
 				data->ToggleSelection(idx, idx);
-				data->SetCaret(idx);
+				data->SetCaret(idx, false);
 			}
 			else if (wParam & MK_SHIFT) {
 				data->AddSelection(data->caret, idx);
-				data->SetCaret(idx);
+				data->SetCaret(idx, false);
 			}
 			else {
-				pt.y -= pItem->savedTop;
-
 				data->selStart = idx;
 				data->SetSelection(idx, idx);
-				data->SetCaret(idx);
+				data->SetCaret(idx, false);
 			}
 		}
 		SetFocus(hwnd);

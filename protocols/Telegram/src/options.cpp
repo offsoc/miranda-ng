@@ -22,7 +22,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 class COptionsDlg : public CTelegramDlgBase
 {
 	CCtrlButton btnLogout;
-	CCtrlCheck chkHideChats, chkUsePopups, chkCompressFiles;
+	CCtrlCheck chkHideChats, chkUsePopups, chkCompressFiles, chkIncludePreviews, chkResidentChannels;
 	CCtrlCombo cmbCountry;
 	CCtrlEdit edtGroup, edtPhone, edtDeviceName;
 	ptrW m_wszOldGroup;
@@ -38,6 +38,8 @@ public:
 		edtGroup(this, IDC_DEFGROUP),
 		edtDeviceName(this, IDC_DEVICE_NAME),
 		chkCompressFiles(this, IDC_COMPRESS_FILES),
+		chkIncludePreviews(this, IDC_USE_PREVIEW),
+		chkResidentChannels(this, IDC_RESIDENT_CHANNELS),
 		m_wszOldGroup(mir_wstrdup(ppro->m_wszDefaultGroup))
 	{
 		CreateLink(edtPhone, ppro->m_szOwnPhone);
@@ -48,9 +50,10 @@ public:
 		if (bFullDlg) {
 			CreateLink(chkUsePopups, ppro->m_bUsePopups);
 			CreateLink(chkCompressFiles, ppro->m_bCompressFiles);
+			CreateLink(chkIncludePreviews, ppro->m_bIncludePreviews);
+			CreateLink(chkResidentChannels, ppro->m_bResidentChannels);
 		}
 
-		btnLogout.Enable(m_proto->getByte(DBKEY_AUTHORIZED));
 		btnLogout.OnClick = Callback(this, &COptionsDlg::onClick_Logout);
 
 		cmbCountry.OnChange = Callback(this, &COptionsDlg::onChange_Country);
@@ -69,6 +72,11 @@ public:
 				cmbCountry.SetCurSel(idx);
 		}
 		
+		bool bAuthorized = m_proto->getBool(DBKEY_AUTHORIZED);
+		btnLogout.Enable(bAuthorized);
+		edtPhone.Enable(!bAuthorized);
+		cmbCountry.Enable(!bAuthorized);
+
 		onChange_Country(0);
 		return true;
 	}
@@ -91,6 +99,9 @@ public:
 	void onClick_Logout(CCtrlButton *)
 	{
 		m_proto->UnregisterSession();
+
+		edtPhone.Enable();
+		cmbCountry.Enable();
 	}
 
 	void onChange_Country(CCtrlCombo *)
@@ -315,7 +326,7 @@ void CTelegramProto::OnGetSessions(td::ClientManager::Response &response, void *
 			pwszType = TranslateT("Unknown");
 		}
 		pList->SetItemText(iItem, 1, pwszType);
-		pList->SetItemText(iItem, 2, Utf2T(pSession->country_.c_str()));
+		pList->SetItemText(iItem, 2, Utf2T(pSession->location_.c_str()));
 
 		wchar_t wszLastLogin[100];
 		TimeZone_PrintTimeStamp(0, pSession->last_active_date_, L"d t", wszLastLogin, _countof(wszLastLogin), 0);

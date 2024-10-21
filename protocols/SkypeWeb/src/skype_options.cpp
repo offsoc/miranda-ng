@@ -20,7 +20,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 class CSkypeOptionsMain : public CSkypeDlgBase
 {
 	CCtrlEdit m_skypename, m_password, m_group, m_place;
-	CCtrlCheck m_autosync, m_allasunread, m_usehostname, m_usebb;
+	CCtrlCheck m_autosync, m_usehostname, m_usebb;
 	CCtrlHyperlink m_link;
 
 public:
@@ -31,27 +31,23 @@ public:
 		m_group(this, IDC_GROUP),
 		m_place(this, IDC_PLACE),
 		m_autosync(this, IDC_AUTOSYNC),
-		m_allasunread(this, IDC_MESASUREAD),
 		m_usehostname(this, IDC_USEHOST),
 		m_usebb(this, IDC_BBCODES),
 		m_link(this, IDC_CHANGEPASS, "https://login.skype.com/recovery/password-change") // TODO : ...?username=%username%
 	{
-		CreateLink(m_group, proto->wstrCListGroup);
-		CreateLink(m_autosync, proto->bAutoHistorySync);
-		CreateLink(m_allasunread, proto->bMarkAllAsUnread);
-		CreateLink(m_place, proto->wstrPlace);
-		CreateLink(m_usehostname, proto->bUseHostnameAsPlace);
-		CreateLink(m_usebb, proto->bUseBBCodes);
+		CreateLink(m_group, proto->m_wstrCListGroup);
+		CreateLink(m_autosync, proto->m_bAutoHistorySync);
+		CreateLink(m_place, proto->m_wstrPlace);
+		CreateLink(m_usehostname, proto->m_bUseHostnameAsPlace);
+		CreateLink(m_usebb, proto->m_bUseBBCodes);
 		m_usehostname.OnChange = Callback(this, &CSkypeOptionsMain::OnUsehostnameCheck);
 	}
 
 	bool OnInitDialog() override
 	{
-		CSkypeDlgBase::OnInitDialog();
-
 		m_skypename.SetTextA(ptrA(m_proto->getStringA(SKYPE_SETTINGS_ID)));
 		m_password.SetTextA(pass_ptrA(m_proto->getStringA("Password")));
-		m_place.Enable(!m_proto->bUseHostnameAsPlace);
+		m_place.Enable(!m_proto->m_bUseHostnameAsPlace);
 		m_skypename.SendMsg(EM_LIMITTEXT, 128, 0);
 		m_password.SendMsg(EM_LIMITTEXT, 128, 0);
 		m_group.SendMsg(EM_LIMITTEXT, 64, 0);

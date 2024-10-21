@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -595,13 +595,9 @@ Result<Stat> FileFd::stat() const {
 #elif TD_PORT_WINDOWS
   Stat res;
 
-  #ifdef _WIN64
-  FILE_BASIC_INFO basic_info;
-  #else
   struct __boo : public FILE_BASIC_INFO {
 	  DWORD __tmp;
   } basic_info;
-  #endif
   auto status = GetFileInformationByHandleEx(get_native_fd().fd(), FileBasicInfo, &basic_info, sizeof(basic_info));
   if (!status) {
     return OS_ERROR("Get FileBasicInfo failed");

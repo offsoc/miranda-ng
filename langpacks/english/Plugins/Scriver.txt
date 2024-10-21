@@ -16,6 +16,7 @@
 [Hide windows on close]
 [Remember unsent messages]
 [Delete temporary contacts on closing]
+[Allow BBCode formatting in outgoing messages]
 [Show warning when message has not been received after]
 [seconds]
 [Tabs]
@@ -188,7 +189,6 @@
 [Log formatting]
 ;file \plugins\Scriver\src\globals.cpp
 [Add contact]
-[User's details]
 [User's history]
 [Send message]
 [Smiley button]

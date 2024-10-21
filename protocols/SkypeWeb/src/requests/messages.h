@@ -18,43 +18,6 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #ifndef _SKYPE_REQUEST_MESSAGES_H_
 #define _SKYPE_REQUEST_MESSAGES_H_
 
-struct SendMessageParam
-{
-	MCONTACT hContact;
-	uint32_t hMessage;
-};
-
-struct SendMessageRequest : public AsyncHttpRequest
-{
-	SendMessageRequest(const char *username, time_t timestamp, const char *message, const char *MessageType = nullptr) :
-	  AsyncHttpRequest(REQUEST_POST, HOST_DEFAULT, 0, &CSkypeProto::OnMessageSent)
-	{
-		m_szUrl.AppendFormat("/users/ME/conversations/%s/messages", mir_urlEncode(username).c_str());
-
-		JSONNode node;
-		node  << INT64_PARAM("clientmessageid", timestamp) << CHAR_PARAM("messagetype", MessageType ? MessageType : "Text")
-			<< CHAR_PARAM("contenttype", "text") << CHAR_PARAM("content", message);
-		m_szParam = node.write().c_str();
-	}
-};
-
-struct SendActionRequest : public AsyncHttpRequest
-{
-	SendActionRequest(const char *username, time_t timestamp, const char *message, CSkypeProto *ppro) :
-	  AsyncHttpRequest(REQUEST_POST, HOST_DEFAULT, 0, &CSkypeProto::OnMessageSent)
-	{
-		m_szUrl.AppendFormat("/users/ME/conversations/%s/messages", mir_urlEncode(username).c_str());
-
-		CMStringA content;
-		content.AppendFormat("%s %s", ppro->m_szSkypename.c_str(), message);
-
-		JSONNode node;
-		node << INT64_PARAM("clientmessageid", timestamp) << CHAR_PARAM("messagetype", "RichText") << CHAR_PARAM("contenttype", "text")
-			<< CHAR_PARAM("content", content) << INT_PARAM("skypeemoteoffset", ppro->m_szSkypename.GetLength() + 1);
-		m_szParam = node.write().c_str();
-	}
-};
-
 struct SendTypingRequest : public AsyncHttpRequest
 {
 	SendTypingRequest(const char *username, int iState) :
@@ -69,13 +32,23 @@ struct SendTypingRequest : public AsyncHttpRequest
 	}
 };
 
+struct DeleteMessageRequest : public AsyncHttpRequest
+{
+	DeleteMessageRequest(CSkypeProto *ppro, const char *username, const char *msgId) :
+		AsyncHttpRequest(REQUEST_DELETE, HOST_DEFAULT, "/users/ME/conversations/" + mir_urlEncode(username) + "/messages/" + msgId)
+	{
+		AddAuthentication(ppro);
+
+		AddHeader("Origin", "https://web.skype.com");
+		AddHeader("Referer", "https://web.skype.com/");
+	}
+};
+
 struct MarkMessageReadRequest : public AsyncHttpRequest
 {
 	MarkMessageReadRequest(const char *username, int64_t msgTimestamp) :
-	  AsyncHttpRequest(REQUEST_PUT, HOST_DEFAULT)
+	  AsyncHttpRequest(REQUEST_PUT, HOST_DEFAULT, "/users/ME/conversations/" + mir_urlEncode(username) + "/properties?name=consumptionhorizon")
 	{
-		m_szUrl.AppendFormat("/users/ME/conversations/%s/properties?name=consumptionhorizon", mir_urlEncode(username).c_str());
-
 		JSONNode node(JSON_NODE);
 		node << CHAR_PARAM("consumptionhorizon", CMStringA(::FORMAT, "%lld;%lld;%lld", msgTimestamp, msgTimestamp, msgTimestamp));
 		m_szParam = node.write().c_str();

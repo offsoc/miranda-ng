@@ -20,8 +20,8 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 struct CSkypeTransfer
 {
-	CMStringA docId, fileName, url;
-	int iFileSize = 0;
+	CMStringA docId, fileName, fileType, url;
+	int iFileSize = 0, iWidth = -1, iHeight = -1;
 };
 
 struct CSkypeProto : public PROTO <CSkypeProto>
@@ -29,6 +29,7 @@ struct CSkypeProto : public PROTO <CSkypeProto>
 	friend class CSkypeOptionsMain;
 	friend class CSkypeGCCreateDlg;
 	friend class CSkypeInviteDlg;
+	friend class CMoodDialog;
 
 	class CSkypeProtoImpl
 	{
@@ -70,15 +71,14 @@ public:
 	int      UserIsTyping(MCONTACT hContact, int type) override;
 	int      RecvContacts(MCONTACT hContact, DB::EventInfo &dbei) override;
 	HANDLE   SendFile(MCONTACT hContact, const wchar_t *szDescription, wchar_t **ppszFiles) override;
-	HANDLE   GetAwayMsg(MCONTACT hContact) override;
-	int      SetAwayMsg(int m_iStatus, const wchar_t *msg) override;
 
 	void     OnBuildProtoMenu(void) override;
 	bool     OnContactDeleted(MCONTACT, uint32_t flags) override;
 	MWindow  OnCreateAccMgrUI(MWindow) override;
+	void     OnEventDeleted(MCONTACT hContact, MEVENT hDbEvent, int flags) override;
 	void     OnMarkRead(MCONTACT, MEVENT) override;
 	void     OnModulesLoaded() override;
-	void     OnReceiveOfflineFile(DB::FILE_BLOB &blob) override;
+	void     OnReceiveOfflineFile(DB::EventInfo &dbei, DB::FILE_BLOB &blob) override;
 	void     OnShutdown() override;
 
 	// icons
@@ -91,11 +91,11 @@ public:
 	void InitPopups();
 	void UninitPopups();
 
-	// languages
-	static void InitLanguages();
-
 	// search
 	void __cdecl SearchBasicThread(void *param);
+
+	// threads
+	void __cdecl CSkypeProto::SendFileThread(void *p);
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// services
@@ -106,15 +106,17 @@ public:
 	//////////////////////////////////////////////////////////////////////////////////////
 	// settings
 
-	CMOption<bool> bAutoHistorySync;
-	CMOption<bool> bMarkAllAsUnread;
-	CMOption<bool> bUseBBCodes;
-	CMOption<bool> bUseServerTime; // hidden setting!
+	CMOption<bool> m_bAutoHistorySync;
+	CMOption<bool> m_bUseBBCodes;
+	CMOption<bool> m_bUseServerTime; // hidden setting!
 
-	CMOption<bool> bUseHostnameAsPlace;
-	CMOption<wchar_t*> wstrPlace;
+	CMOption<bool> m_bUseHostnameAsPlace;
+	CMOption<wchar_t*> m_wstrPlace;
 
-	CMOption<wchar_t*> wstrCListGroup;
+	CMOption<wchar_t*> m_wstrCListGroup;
+
+	CMOption<uint8_t> m_iMood;
+	CMOption<wchar_t*> m_wstrMoodMessage, m_wstrMoodEmoji;
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// other data
@@ -122,13 +124,12 @@ public:
 	int m_iPollingId;
 	ptrA m_szApiToken, m_szToken, m_szId, m_szOwnSkypeId;
 	CMStringA m_szSkypename, m_szMyname;
+	MCONTACT m_hMyContact;
 
 	__forceinline CMStringA getId(MCONTACT hContact) {
 		return getMStringA(hContact, SKYPE_SETTINGS_ID);
 	}
 
-	void OnReceiveAvatar(MHttpResponse *response, AsyncHttpRequest *pRequest);
-	void OnSentAvatar(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnSearch(MHttpResponse *response, AsyncHttpRequest *pRequest);
 
 	// login
@@ -155,8 +156,10 @@ public:
 	void OnBlockContact(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnUnblockContact(MHttpResponse *response, AsyncHttpRequest *pRequest);
 
+	void OnReceiveAvatar(MHttpResponse *response, AsyncHttpRequest *pRequest);
+	void OnSentAvatar(MHttpResponse *response, AsyncHttpRequest *pRequest);
+
 	void OnMessageSent(MHttpResponse *response, AsyncHttpRequest *pRequest);
-	void OnReceiveAwayMsg(MHttpResponse *response, AsyncHttpRequest *pRequest);
 
 	void OnGetServerHistory(MHttpResponse *response, AsyncHttpRequest *pRequest);
 	void OnSyncConversations(MHttpResponse *response, AsyncHttpRequest *pRequest);
@@ -188,11 +191,6 @@ private:
 	HANDLE m_hPollingThread;
 	HNETLIBCONN m_hPollingConn;
 
-	INT_PTR __cdecl SvcGetAvatarInfo(WPARAM, LPARAM);
-	INT_PTR __cdecl SvcGetAvatarCaps(WPARAM, LPARAM);
-	INT_PTR __cdecl SvcGetMyAvatar(WPARAM, LPARAM);
-	INT_PTR __cdecl SvcSetMyAvatar(WPARAM, LPARAM);
-
 	// requests
 	bool m_isTerminated = true;
 	mir_cs m_requestQueueLock;
@@ -209,6 +207,17 @@ private:
 
 	void Execute(AsyncHttpRequest *request);
 	void PushRequest(AsyncHttpRequest *request);
+
+	// avatars
+	void SetAvatarUrl(MCONTACT hContact, const CMStringW &tszUrl);
+	bool ReceiveAvatar(MCONTACT hContact);
+	void ReloadAvatarInfo(MCONTACT hContact);
+	void GetAvatarFileName(MCONTACT hContact, wchar_t *pszDest, size_t cbLen);
+
+	INT_PTR __cdecl SvcGetAvatarInfo(WPARAM, LPARAM);
+	INT_PTR __cdecl SvcGetAvatarCaps(WPARAM, LPARAM);
+	INT_PTR __cdecl SvcGetMyAvatar(WPARAM, LPARAM);
+	INT_PTR __cdecl SvcSetMyAvatar(WPARAM, LPARAM);
 
 	// menus
 	static HGENMENU ContactMenuItems[CMI_MAX];
@@ -228,19 +237,12 @@ private:
 	void UpdateProfileGender(const JSONNode &root, MCONTACT hContact = NULL);
 	void UpdateProfileBirthday(const JSONNode &root, MCONTACT hContact = NULL);
 	void UpdateProfileCountry(const JSONNode &node, MCONTACT hContact = NULL);
-	void UpdateProfileLanguage(const JSONNode &root, MCONTACT hContact = NULL);
 	void UpdateProfileEmails(const JSONNode &root, MCONTACT hContact = NULL);
 	void UpdateProfileAvatar(const JSONNode &root, MCONTACT hContact = NULL);
-
-	void __cdecl CSkypeProto::SendFileThread(void *p);
 
 	// contacts
 	uint16_t GetContactStatus(MCONTACT hContact);
 	void SetContactStatus(MCONTACT hContact, uint16_t status);
-
-	void SetAvatarUrl(MCONTACT hContact, const CMStringW &tszUrl);
-	void ReloadAvatarInfo(MCONTACT hContact);
-	void GetAvatarFileName(MCONTACT hContact, wchar_t* pszDest, size_t cbLen);
 
 	MCONTACT FindContact(const char *skypeId);
 	MCONTACT FindContact(const wchar_t *skypeId);
@@ -279,6 +281,8 @@ private:
 	void RemoveChatContact(SESSION_INFO *si, const wchar_t *id, bool isKick = false, const wchar_t *initiator = L"");
 	void SendChatMessage(SESSION_INFO *si, const wchar_t *tszMessage);
 
+	void KickChatUser(const char *chatId, const char *userId);
+
 	void SetChatStatus(MCONTACT hContact, int iStatus);
 
 	// polling
@@ -311,6 +315,8 @@ private:
 	int64_t getLastTime(MCONTACT);
 	void setLastTime(MCONTACT, int64_t);
 
+	CMStringW RemoveHtml(const CMStringW &src, bool bCheckSS = false);
+
 	static time_t IsoToUnixTime(const std::string &stamp);
 
 	static int SkypeToMirandaStatus(const char *status);
@@ -334,11 +340,12 @@ private:
 	// services
 	INT_PTR __cdecl BlockContact(WPARAM hContact, LPARAM);
 	INT_PTR __cdecl UnblockContact(WPARAM hContact, LPARAM);
-	INT_PTR __cdecl OnRequestAuth(WPARAM hContact, LPARAM lParam);
+	INT_PTR __cdecl OnRequestAuth(WPARAM hContact, LPARAM);
 	INT_PTR __cdecl OnGrantAuth(WPARAM hContact, LPARAM);
-	INT_PTR __cdecl SvcLoadHistory(WPARAM hContact, LPARAM lParam);
-	INT_PTR __cdecl SvcEmptyHistory(WPARAM hContact, LPARAM lParam);
+	INT_PTR __cdecl SvcLoadHistory(WPARAM hContact, LPARAM);
+	INT_PTR __cdecl SvcEmptyHistory(WPARAM hContact, LPARAM);
 	INT_PTR __cdecl SvcCreateChat(WPARAM, LPARAM);
+	INT_PTR __cdecl SvcSetMood(WPARAM, LPARAM);
 	INT_PTR __cdecl ParseSkypeUriService(WPARAM, LPARAM lParam);
 
 	template<INT_PTR(__cdecl CSkypeProto::*Service)(WPARAM, LPARAM)>

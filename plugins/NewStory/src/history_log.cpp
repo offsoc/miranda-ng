@@ -63,9 +63,9 @@ public:
 		return m_hwnd;
 	}
 
-	wchar_t *GetSelection() override
+	wchar_t* GetSelectedText() override
 	{
-		return nullptr;
+		return m_histCtrl->GatherSelected(true).Detach();
 	}
 
 	int GetType() override
@@ -81,7 +81,7 @@ public:
 		if (!bAppend)
 			Clear();
 
-		m_histCtrl->AddEvent(m_pDlg.m_hContact, hDbEvent, count);
+		m_histCtrl->AddEvent(m_pDlg.m_hContact, hDbEvent, count, true);
 	}
 
 	void LogChatEvent(const LOGINFO &lin) override

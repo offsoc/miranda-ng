@@ -67,7 +67,7 @@ CIrcProto::CIrcProto(const char* szModuleName, const wchar_t* tszUserName) :
 
 	// group chats
 	GCREGISTER gcr = {};
-	gcr.dwFlags = GC_CHANMGR | GC_BOLD | GC_ITALICS | GC_UNDERLINE | GC_COLOR | GC_BKGCOLOR;
+	gcr.dwFlags = GC_CHANMGR;
 	gcr.ptszDispName = m_tszUserName;
 	gcr.pszModule = m_szModuleName;
 	Chat_Register(&gcr);
@@ -391,7 +391,7 @@ INT_PTR CIrcProto::GetCaps(int type, MCONTACT)
 		return PF2_SHORTAWAY;
 
 	case PFLAGNUM_4:
-		return PF4_NOAUTHDENYREASON | PF4_NOCUSTOMAUTH;
+		return PF4_NOAUTHDENYREASON | PF4_NOCUSTOMAUTH | PF4_SERVERFORMATTING;
 
 	case PFLAG_UNIQUEIDTEXT:
 		return (INT_PTR)TranslateT("Nickname");
@@ -516,7 +516,6 @@ HANDLE CIrcProto::SendFile(MCONTACT hContact, const wchar_t*, wchar_t** ppszFile
 
 			// need to make sure that %'s are doubled to avoid having chat interpret as color codes
 			CMStringW sFileCorrect = dci->sFile;
-			sFileCorrect.Replace(L"%", L"%%");
 
 			// is it an reverse filetransfer (receiver acts as server)
 			if (dci->bReverse) {

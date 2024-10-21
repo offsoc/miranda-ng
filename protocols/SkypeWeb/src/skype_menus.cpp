@@ -55,8 +55,6 @@ void CSkypeProto::InitMenus()
 {
 	HookEvent(ME_CLIST_PREBUILDCONTACTMENU, &CSkypeProto::PrebuildContactMenu);
 
-	//hChooserMenu = Menu_AddObject("SkypeAccountChooser", LPGEN("Skype menu chooser"), 0, "Skype/MenuChoose");
-
 	CMenuItem mi(&g_plugin);
 	mi.flags = CMIF_UNICODE;
 
@@ -77,6 +75,9 @@ void CSkypeProto::InitMenus()
 	CreateServiceFunction(mi.pszService, GlobalService<&CSkypeProto::UnblockContact>);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////
+// Protocol's menu in the status bar
+
 void CSkypeProto::OnBuildProtoMenu()
 {
 	CMenuItem mi(&g_plugin);
@@ -85,7 +86,14 @@ void CSkypeProto::OnBuildProtoMenu()
 	mi.pszService = "/CreateNewChat";
 	CreateProtoService(mi.pszService, &CSkypeProto::SvcCreateChat);
 	mi.name.a = LPGEN("Create new chat");
-	mi.position = SMI_POSITION + SMI_CREATECHAT;
+	mi.position = 200000;
 	mi.hIcolibItem = g_plugin.getIconHandle(IDI_CONFERENCE);
+	Menu_AddProtoMenuItem(&mi, m_szModuleName);
+
+	mi.pszService = "/SetMood";
+	CreateProtoService(mi.pszService, &CSkypeProto::SvcSetMood);
+	mi.name.a = LPGEN("Set own mood");
+	mi.position++;
+	mi.hIcolibItem = Skin_GetIconHandle(SKINICON_OTHER_USERONLINE);
 	Menu_AddProtoMenuItem(&mi, m_szModuleName);
 }

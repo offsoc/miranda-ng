@@ -101,6 +101,7 @@
 #define IDC_LOGLIMIT                    1024
 #define IDC_CLOSE                       1025
 #define IDC_CHKACTR_DISMISS             1026
+#define IDC_CHAT_USEGROUP               1027
 #define IDC_CHKACTR_OPEN                1028
 #define IDC_CONTACTPIC                  1029
 #define IDC_CHAT_SPIN2                  1029
@@ -192,7 +193,6 @@
 #define IDC_ADD                         1101
 #define IDC_RTL                         1103
 #define IDC_CANCELADD                   1112
-#define IDC_FONTSTRIKEOUT               1113
 #define IDC_MATH_BKGCOLOUR              1124
 #define IDC_FONTCOLOR                   1127
 #define IDC_LOGFROZENTEXT               1128

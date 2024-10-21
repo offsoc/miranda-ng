@@ -142,16 +142,7 @@ static int SRFileModulesLoaded(WPARAM, LPARAM)
 	hSRFileMenuItem = Menu_AddContactMenuItem(&mi);
 	CreateServiceFunction(mi.pszService, SendFileCommand);
 
-	// SRMM toolbar button
-	BBButton bbd = {};
-	bbd.bbbFlags = BBBF_ISIMBUTTON | BBBF_ISCHATBUTTON | BBBF_NOREADONLY;
-	bbd.dwButtonID = 1;
-	bbd.dwDefPos = 50;
-	bbd.hIcon = g_plugin.getIconHandle(IDI_ATTACH);
-	bbd.pszModuleName = SRFILEMODULE;
-	bbd.pwszTooltip = LPGENW("Send file");
-	g_plugin.addButton(&bbd);
-
+	// Event hooks
 	HookEvent(ME_MSG_BUTTONPRESSED, OnToolbarButtonPressed);
 	HookEvent(ME_CLIST_PREBUILDCONTACTMENU, SRFilePreBuildMenu);
 	HookEvent(ME_PROTO_ACK, SRFileProtoAck);
@@ -227,7 +218,7 @@ MEVENT Proto_RecvFile(MCONTACT hContact, DB::FILE_BLOB &blob, DB::EventInfo &dbe
 	CMStringW wszFiles, wszDescr;
 
 	if (auto *ppro = Proto_GetContactInstance(hContact))
-		ppro->OnReceiveOfflineFile(blob);
+		ppro->OnReceiveOfflineFile(dbei, blob);
 	blob.write(dbei);
 
 	MEVENT hdbe = db_event_add(hContact, &dbei);

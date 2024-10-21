@@ -21,6 +21,7 @@
 #define IDI_MSGOUT                      117
 #define IDI_SIGNIN                      118
 #define IDI_OK                          119
+#define IDI_NO_IMAGE                    120
 #define IDI_UNKNOWN                     121
 #define IDI_FINDPREV                    122
 #define IDI_FINDNEXT                    123
@@ -32,6 +33,8 @@
 #define IDI_TIMETREE                    129
 #define IDI_REPLY                       130
 #define IDD_EMPTYHISTORY                131
+#define IDI_REMOTEREAD                  132
+#define IDI_DELIVERED                   133
 #define IDC_USERINFO                    1000
 #define IDC_USERMENU                    1001
 #define IDC_MESSAGE                     1002

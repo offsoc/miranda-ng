@@ -211,7 +211,7 @@ int ItemData::calcHeight(int width)
 			xPos += 18;
 
 		cx -= xPos;
-		if (m_bOfflineDownloaded != 0) // Download completed icon
+		if (m_bOfflineDownloaded != 0 || m_bDelivered || m_bRemoteRead) // Download completed icon
 			cx -= 18;
 	}
 
@@ -520,7 +520,7 @@ void HistoryArray::addChatEvent(NewstoryListData *pOwner, SESSION_INFO *si, cons
 		if (!bTextUsed && lin->ptszText) {
 			if (!wszText.IsEmpty())
 				wszText.AppendChar(' ');
-			wszText.Append(g_chatApi.RemoveFormatting(lin->ptszText));
+			wszText.Append(lin->ptszText);
 		}
 
 		p.wtext = wszText.Detach();
@@ -559,7 +559,7 @@ void HistoryArray::addChatEvent(NewstoryListData *pOwner, SESSION_INFO *si, cons
 	}
 }
 
-bool HistoryArray::addEvent(NewstoryListData *pOwner, MCONTACT hContact, MEVENT hEvent, int count)
+void HistoryArray::addEvent(NewstoryListData *pOwner, MCONTACT hContact, MEVENT hEvent, int count, bool bNew)
 {
 	if (count == -1)
 		count = MAXINT;
@@ -577,6 +577,7 @@ bool HistoryArray::addEvent(NewstoryListData *pOwner, MCONTACT hContact, MEVENT 
 		p.pOwner = pOwner;
 		p.dbe.hContact = hContact;
 		p.dbe = hEvent;
+		p.m_bNew = bNew;
 		if (isChat) {
 			checkGC(p, si);
 			pPrev = p.checkPrevGC(pPrev);
@@ -594,6 +595,7 @@ bool HistoryArray::addEvent(NewstoryListData *pOwner, MCONTACT hContact, MEVENT 
 			p.pOwner = pOwner;
 			p.dbe.hContact = hContact;
 			p.dbe = hEvent;
+			p.m_bNew = bNew;
 			if (isChat) {
 				checkGC(p, si);
 				pPrev = p.checkPrevGC(pPrev);
@@ -601,8 +603,6 @@ bool HistoryArray::addEvent(NewstoryListData *pOwner, MCONTACT hContact, MEVENT 
 			else pPrev = p.checkPrev(pPrev);
 		}
 	}
-
-	return true;
 }
 
 void HistoryArray::addNick(ItemData &pItem, wchar_t *pwszNick)
@@ -775,6 +775,8 @@ void HistoryArray::remove(int id)
 	}
 	else {
 		iLastPageCounter--;
-		memset(&pages[nPages].data[iLastPageCounter], 0, sizeof(ItemData));
+		auto &pLast = pages[nPages].data[iLastPageCounter];
+		memset(&pLast, 0, sizeof(ItemData));
+		pLast.savedHeight = -1;
 	}
 }

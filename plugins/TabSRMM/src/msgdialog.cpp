@@ -35,7 +35,7 @@ LIST<void> g_arUnreadWindows(1, PtrKeySortT);
 static int g_cLinesPerPage = 0;
 static int g_iWheelCarryover = 0;
 
-static const UINT formatControls[] = { IDC_SRMM_BOLD, IDC_SRMM_ITALICS, IDC_SRMM_UNDERLINE, IDC_FONTSTRIKEOUT };
+static const UINT formatControls[] = { IDC_SRMM_BOLD, IDC_SRMM_ITALICS, IDC_SRMM_UNDERLINE, IDC_SRMM_STRIKEOUT };
 static const UINT addControls[] = { IDC_ADD, IDC_CANCELADD };
 static const UINT btnControls[] = { IDC_RETRY, IDC_CANCELSEND, IDC_MSGSENDLATER, IDC_ADD, IDC_CANCELADD };
 static const UINT errorControls[] = { IDC_STATICERRORICON, IDC_STATICTEXT, IDC_RETRY, IDC_CANCELSEND, IDC_MSGSENDLATER };
@@ -152,6 +152,15 @@ void CMsgDialog::SetDialogToType()
 	Utils::enableDlgControl(m_hwnd, IDC_CONTACTPIC, false);
 
 	m_pPanel.Configure();
+}
+
+void CMsgDialog::SetInitMessage(const wchar_t *pwszInitMessage)
+{
+	m_message.SetText(pwszInitMessage);
+	int len = GetWindowTextLength(m_message.GetHwnd());
+	PostMessage(m_message.GetHwnd(), EM_SETSEL, len, len);
+	if (len)
+		EnableSendButton(true);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -311,45 +320,31 @@ LRESULT CALLBACK SplitterSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 /////////////////////////////////////////////////////////////////////////////////////////
 
 CMsgDialog::CMsgDialog(int iDlgId, MCONTACT hContact) :
-	CSuper(g_plugin, iDlgId),
+	CSuper(g_plugin, iDlgId, hContact),
 	m_pPanel(this),
 	timerAwayMsg(this, 100),
 	m_btnAdd(this, IDC_ADD),
 	m_btnQuote(this, IDC_QUOTE),
 	m_btnCancelAdd(this, IDC_CANCELADD),
-	m_btnStrikeout(this, IDC_FONTSTRIKEOUT)
+	m_btnStrikeout(this, IDC_SRMM_STRIKEOUT)
 {
 	m_hContact = hContact;
 
-	m_btnAdd.OnClick = Callback(this, &CMsgDialog::onClick_Add);
 	m_btnQuote.OnClick = Callback(this, &CMsgDialog::onClick_Quote);
-	m_btnCancelAdd.OnClick = Callback(this, &CMsgDialog::onClick_CancelAdd);
 
-	Init();
-}
+	if (m_si) {
+		m_btnFilter.OnClick = Callback(this, &CMsgDialog::onClick_Filter);
+		m_btnNickList.OnClick = Callback(this, &CMsgDialog::onClick_ShowNickList);
 
-CMsgDialog::CMsgDialog(SESSION_INFO *si) :
-	CSuper(g_plugin, IDD_CHANNEL, si),
-	m_pPanel(this),
-	timerAwayMsg(this, 100),
-	m_btnAdd(this, IDC_ADD),
-	m_btnQuote(this, IDC_QUOTE),
-	m_btnCancelAdd(this, IDC_CANCELADD),
-	m_btnStrikeout(this, IDC_FONTSTRIKEOUT)
-{
-	m_hContact = si->hContact;
+		m_nickList.OnDblClick = Callback(this, &CMsgDialog::onDblClick_List);
+	}
+	else {
+		m_btnAdd.OnClick = Callback(this, &CMsgDialog::onClick_Add);
+		m_btnCancelAdd.OnClick = Callback(this, &CMsgDialog::onClick_CancelAdd);
+	}
 
-	m_btnQuote.OnClick = Callback(this, &CMsgDialog::onClick_Quote);
-	m_btnFilter.OnClick = Callback(this, &CMsgDialog::onClick_Filter);
-	m_btnNickList.OnClick = Callback(this, &CMsgDialog::onClick_ShowNickList);
+	GetSendFormat();
 
-	m_nickList.OnDblClick = Callback(this, &CMsgDialog::onDblClick_List);
-
-	Init();
-}
-
-void CMsgDialog::Init()
-{
 	m_szProto = Proto_GetBaseAccountName(m_hContact);
 	m_autoClose = CLOSE_ON_CANCEL;
 	m_forceResizable = true;
@@ -576,9 +571,6 @@ bool CMsgDialog::OnInitDialog()
 		UpdateTitle();
 		m_hTabIcon = m_hTabStatusIcon;
 
-		if (!m_bSendFormat)
-			ShowMultipleControls(m_hwnd, formatControls, _countof(formatControls), SW_HIDE);
-
 		UpdateNickList();
 		UpdateChatLog();
 	}
@@ -602,15 +594,6 @@ bool CMsgDialog::OnInitDialog()
 		UpdateSaveAndSendButton();
 		if (m_pContainer->m_hwndActive == m_hwnd)
 			UpdateReadChars();
-	}
-
-	if (wszInitialText) {
-		m_message.SetText(wszInitialText);
-		int len = GetWindowTextLength(m_message.GetHwnd());
-		PostMessage(m_message.GetHwnd(), EM_SETSEL, len, len);
-		if (len)
-			EnableSendButton(true);
-		mir_free(wszInitialText);
 	}
 
 	m_pContainer->QueryClientArea(rc);
@@ -695,9 +678,7 @@ void CMsgDialog::OnDestroy()
 		DestroyWindow(m_hwndPanelPicParent);
 
 	if (m_si) {
-		if (Clist_GetEvent(m_si->hContact, 0))
-			Clist_RemoveEvent(m_si->hContact, GC_FAKE_EVENT);
-		m_si->wState &= ~STATE_TALK;
+		m_si->markRead(true);
 		m_si->pDlg = nullptr;
 		m_si = nullptr;
 	}
@@ -791,10 +772,12 @@ void CMsgDialog::onClick_Ok(CCtrlButton *)
 	if (decoded.IsEmpty())
 		return;
 
+	if (final_sendformat)
+		DoRtfToTags(decoded);
+	decoded.TrimRight();
+
 	if (isChat()) {
 		m_cache->saveHistory();
-		DoRtfToTags(decoded);
-		decoded.Trim();
 
 		if (m_si->pMI->bAckMsg) {
 			m_message.Enable(false);
@@ -820,10 +803,6 @@ void CMsgDialog::onClick_Ok(CCtrlButton *)
 				Skin_PlaySound("SendMsg");
 	}
 	else {
-		if (final_sendformat)
-			DoRtfToTags(decoded);
-		decoded.TrimRight();
-
 		T2Utf utfResult(decoded);
 		size_t memRequired = mir_strlen(utfResult) + 1;
 
@@ -904,29 +883,20 @@ void CMsgDialog::onClick_Quote(CCtrlButton*)
 	CMStringW szQuoted;
 	int iOutputWidth = M.GetDword("quoteLineLength", 64);
 
-	wchar_t *selected = m_pLog->GetSelection();
+	wchar_t *selected = m_pLog->GetSelectedText();
 	if (selected != nullptr)
 		szQuoted = Srmm_Quote(selected, iOutputWidth);
 	else {
-		MEVENT hDBEvent = db_event_last(m_hContact);
-		if (hDBEvent == 0)
-			return;
-
-		if (m_iLogMode == WANT_BUILTIN_LOG) {
-			CHARRANGE sel;
-			LOG()->WndProc(EM_EXGETSEL, 0, (LPARAM)&sel);
-			if (sel.cpMin != sel.cpMax) {
-				ptrA szFromStream(LOG()->RTF().GetRichTextRtf(true, true));
-				ptrW converted(mir_utf8decodeW(szFromStream));
-				Utils::FilterEventMarkers(converted);
-				szQuoted = Srmm_Quote(converted, iOutputWidth);
-			}
-		}
+		ptrW wszSelection(m_pLog->GetSelectedText());
+		if (mir_wstrlen(wszSelection))
+			szQuoted = Srmm_Quote(wszSelection, iOutputWidth);
 
 		if (szQuoted.IsEmpty()) {
-			DB::EventInfo dbei(hDBEvent);
-			if (dbei)
-				szQuoted = Srmm_Quote(ptrW(dbei.getText()), iOutputWidth);
+			if (MEVENT hDBEvent = db_event_last(m_hContact)) {
+				DB::EventInfo dbei(hDBEvent);
+				if (dbei)
+					szQuoted = Srmm_Quote(ptrW(dbei.getText()), iOutputWidth);
+			}
 		}
 	}
 
@@ -1472,7 +1442,7 @@ int CMsgDialog::OnFilter(MSGFILTER *pFilter)
 			File::Send(m_hContact);
 			return _dlgReturn(m_hwnd, 1);
 		case TABSRMM_HK_QUOTEMSG:
-			SendMessage(m_hwnd, WM_COMMAND, IDC_QUOTE, 0);
+			m_btnQuote.Click();
 			return _dlgReturn(m_hwnd, 1);
 		case TABSRMM_HK_CLEARMSG:
 			m_message.SetText(L"");
@@ -1691,46 +1661,6 @@ int CMsgDialog::OnFilter(MSGFILTER *pFilter)
 			SendDlgItemMessage(m_hwnd, pFilter->nmhdr.code, WM_COPY, 0, 0);
 			return 0;
 		}
-	}
-
-	if ((msg == WM_LBUTTONDOWN || msg == WM_KEYUP || msg == WM_LBUTTONUP) && pFilter->nmhdr.idFrom == IDC_SRMM_MESSAGE) {
-		int bBold = IsDlgButtonChecked(m_hwnd, IDC_SRMM_BOLD);
-		int bItalic = IsDlgButtonChecked(m_hwnd, IDC_SRMM_ITALICS);
-		int bUnder = IsDlgButtonChecked(m_hwnd, IDC_SRMM_UNDERLINE);
-		int bStrikeout = IsDlgButtonChecked(m_hwnd, IDC_FONTSTRIKEOUT);
-
-		CHARFORMAT2 cf2;
-		cf2.cbSize = sizeof(CHARFORMAT2);
-		cf2.dwMask = CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_UNDERLINETYPE | CFM_STRIKEOUT;
-		cf2.dwEffects = 0;
-		m_message.SendMsg(EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf2);
-		if (cf2.dwEffects & CFE_BOLD) {
-			if (bBold == BST_UNCHECKED)
-				CheckDlgButton(m_hwnd, IDC_SRMM_BOLD, BST_CHECKED);
-		}
-		else if (bBold == BST_CHECKED)
-			CheckDlgButton(m_hwnd, IDC_SRMM_BOLD, BST_UNCHECKED);
-
-		if (cf2.dwEffects & CFE_ITALIC) {
-			if (bItalic == BST_UNCHECKED)
-				CheckDlgButton(m_hwnd, IDC_SRMM_ITALICS, BST_CHECKED);
-		}
-		else if (bItalic == BST_CHECKED)
-			CheckDlgButton(m_hwnd, IDC_SRMM_ITALICS, BST_UNCHECKED);
-
-		if (cf2.dwEffects & CFE_UNDERLINE && (cf2.bUnderlineType & CFU_UNDERLINE || cf2.bUnderlineType & CFU_UNDERLINEWORD)) {
-			if (bUnder == BST_UNCHECKED)
-				CheckDlgButton(m_hwnd, IDC_SRMM_UNDERLINE, BST_CHECKED);
-		}
-		else if (bUnder == BST_CHECKED)
-			CheckDlgButton(m_hwnd, IDC_SRMM_UNDERLINE, BST_UNCHECKED);
-
-		if (cf2.dwEffects & CFE_STRIKEOUT) {
-			if (bStrikeout == BST_UNCHECKED)
-				CheckDlgButton(m_hwnd, IDC_FONTSTRIKEOUT, BST_CHECKED);
-		}
-		else if (bStrikeout == BST_CHECKED)
-			CheckDlgButton(m_hwnd, IDC_FONTSTRIKEOUT, BST_UNCHECKED);
 	}
 	
 	switch (msg) {

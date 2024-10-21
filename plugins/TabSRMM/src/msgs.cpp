@@ -115,7 +115,7 @@ static INT_PTR ReadMessageCommand(WPARAM, LPARAM lParam)
 		if (pContainer == nullptr)
 			pContainer = CreateContainer(szName, FALSE, hContact);
 		if (pContainer)
-			CreateNewTabForContact(pContainer, hContact, true, true, false, 0);
+			CreateNewTabForContact(pContainer, hContact, true, true);
 	}
 	return 0;
 }
@@ -126,15 +126,11 @@ static INT_PTR ReadMessageCommand(WPARAM, LPARAM lParam)
 // it is implemented as a service, so external plugins can use it to open a message window.
 // contacts handle must be passed in wParam.
 
-INT_PTR SendMessageCommand_Worker(MCONTACT hContact, LPCSTR pszMsg, bool isWchar)
+INT_PTR SendMessageCommand_Worker(MCONTACT hContact, const wchar_t *pwszInitMsg)
 {
 	// make sure that only the main UI thread will handle window creation
 	if (GetCurrentThreadId() != PluginConfig.dwThreadID) {
-		if (pszMsg) {
-			wchar_t *tszText = (isWchar) ? mir_wstrdup((wchar_t*)pszMsg) : mir_a2u(pszMsg);
-			PostMessage(PluginConfig.g_hwndHotkeyHandler, DM_SENDMESSAGECOMMANDW, hContact, (LPARAM)tszText);
-		}
-		else PostMessage(PluginConfig.g_hwndHotkeyHandler, DM_SENDMESSAGECOMMANDW, hContact, 0);
+		PostMessage(PluginConfig.g_hwndHotkeyHandler, DM_SENDMESSAGECOMMANDW, hContact, LPARAM(mir_wstrdup(pwszInitMsg)));
 		return 0;
 	}
 
@@ -145,17 +141,9 @@ INT_PTR SendMessageCommand_Worker(MCONTACT hContact, LPCSTR pszMsg, bool isWchar
 	if (0 == (CallProtoService(szProto, PS_GETCAPS, PFLAGNUM_1, 0) & PF1_IMSEND))
 		return 0;
 
-	if (auto *pDlg = Srmm_FindDialog(hContact)) {
-		if (pszMsg) {
-			HWND hEdit = GetDlgItem(pDlg->GetHwnd(), IDC_SRMM_MESSAGE);
-			SendMessage(hEdit, EM_SETSEL, -1, GetWindowTextLength(hEdit));
-			if (isWchar)
-				SendMessageW(hEdit, EM_REPLACESEL, FALSE, (LPARAM)pszMsg);
-			else
-				SendMessageA(hEdit, EM_REPLACESEL, FALSE, (LPARAM)pszMsg);
-		}
+	auto *pDlg = Srmm_FindDialog(hContact);
+	if (pDlg)
 		pDlg->ActivateTab();
-	}
 	else {
 		wchar_t szName[CONTAINER_NAMELEN + 1];
 		GetContainerNameForContact(hContact, szName, CONTAINER_NAMELEN);
@@ -164,19 +152,23 @@ INT_PTR SendMessageCommand_Worker(MCONTACT hContact, LPCSTR pszMsg, bool isWchar
 		if (pContainer == nullptr)
 			pContainer = CreateContainer(szName, FALSE, hContact);
 		if (pContainer)
-			CreateNewTabForContact(pContainer, hContact, true, true, false, 0, isWchar, pszMsg);
+			pDlg = CreateNewTabForContact(pContainer, hContact, true, true);
 	}
+
+	if (pDlg && pwszInitMsg)
+		pDlg->SetInitMessage(pwszInitMsg);
+
 	return 0;
 }
 
 INT_PTR SendMessageCommand(WPARAM hContact, LPARAM lParam)
 {
-	return SendMessageCommand_Worker(hContact, LPCSTR(lParam), false);
+	return SendMessageCommand_Worker(hContact, _A2T((const char*)lParam));
 }
 
 INT_PTR SendMessageCommand_W(WPARAM hContact, LPARAM lParam)
 {
-	return SendMessageCommand_Worker(hContact, LPCSTR(lParam), true);
+	return SendMessageCommand_Worker(hContact, (const wchar_t*)lParam);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -186,8 +178,12 @@ INT_PTR SendMessageCommand_W(WPARAM hContact, LPARAM lParam)
 static INT_PTR TypingMessageCommand(WPARAM, LPARAM lParam)
 {
 	CLISTEVENT *cle = (CLISTEVENT*)lParam;
-	if (cle)
-		SendMessageCommand((WPARAM)cle->hContact, 0);
+	if (cle) {
+		if (Contact::IsGroupChat(cle->hContact))
+			return CALLSERVICE_NOTFOUND;
+
+		SendMessageCommand(cle->hContact, 0);
+	}
 	return 0;
 }
 
@@ -241,23 +237,31 @@ int MyAvatarChanged(WPARAM wParam, LPARAM lParam)
 // bActivateTab: make the new tab the active one
 // bPopupContainer: restore container if it was minimized, otherwise flash it...
 
-void TSAPI CreateNewTabForContact(TContainerData *pContainer, MCONTACT hContact, bool bActivateTab, bool bPopupContainer, bool bWantPopup, MEVENT hdbEvent, bool bIsUnicode, const char *pszInitialText)
+CMsgDialog* TSAPI CreateNewTabForContact(
+	TContainerData *pContainer,
+	MCONTACT hContact,
+	bool bActivateTab,
+	bool bPopupContainer,
+	MEVENT hdbEvent)
 {
+	if (pContainer == nullptr)
+		return nullptr;
+
 	if (hContact == 0) {
 		_DebugPopup(hContact, L"Warning: trying to create a window for empty contact");
-		return;
+		return nullptr;
 	}
 
 	if (Srmm_FindWindow(hContact) != nullptr) {
 		_DebugPopup(hContact, L"Warning: trying to create duplicate window");
-		return ;
+		return nullptr;
 	}
 
 	// if we have a max # of tabs/container set and want to open something in the default container...
 	if (M.GetByte("limittabs", 0) && !wcsncmp(pContainer->m_wszName, L"default", 6))
 		if ((pContainer = FindMatchingContainer(L"default")) == nullptr)
 			if ((pContainer = CreateContainer(L"default", CNT_CREATEFLAG_CLONED, hContact)) == nullptr)
-				return;
+				return nullptr;
 
 	char *szProto = Proto_GetBaseAccountName(hContact);
 
@@ -294,7 +298,7 @@ void TSAPI CreateNewTabForContact(TContainerData *pContainer, MCONTACT hContact,
 	if (iCount > 0) {
 		for (int i = iCount - 1; i >= 0; i--) {
 			HWND hwnd = GetTabWindow(pContainer->m_hwndTabs, i);
-			CMsgDialog *dat = (CMsgDialog*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+			CMsgDialog *dat = (CMsgDialog *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 			if (dat) {
 				int relPos = M.GetDword(dat->m_hContact, "tabindex", i * 100);
 				if (iTabIndex_wanted <= relPos)
@@ -313,17 +317,19 @@ void TSAPI CreateNewTabForContact(TContainerData *pContainer, MCONTACT hContact,
 	SendMessage(pContainer->m_hwndTabs, EM_REFRESHWITHOUTCLIP, 0, 0);
 	if (bActivateTab)
 		TabCtrl_SetCurSel(pContainer->m_hwndTabs, iTabId);
-	
-	CMsgDialog *pWindow = new CMsgDialog(IDD_MSGSPLITNEW, hContact);
+
+	CMsgDialog *pWindow;
+	if (Contact::IsGroupChat(hContact))
+		pWindow = new CMsgDialog(IDD_CHANNEL, hContact);
+	else
+		pWindow = new CMsgDialog(IDD_MSGSPLITNEW, hContact);
 	pWindow->m_iTabID = iTabId;
 	pWindow->m_pContainer = pContainer;
 	pContainer->m_iChilds++;
 
 	pWindow->m_bActivate = bActivateTab;
-	pWindow->m_bWantPopup = bWantPopup;
+	pWindow->m_bWantPopup = !bActivateTab;
 	pWindow->m_hDbEventFirst = hdbEvent;
-	if (pszInitialText)
-		pWindow->wszInitialText = (bIsUnicode) ? mir_wstrdup((const wchar_t*)pszInitialText) : mir_a2u(pszInitialText);
 	pWindow->SetParent(pContainer->m_hwndTabs);
 	pWindow->Create();
 
@@ -384,6 +390,8 @@ void TSAPI CreateNewTabForContact(TContainerData *pContainer, MCONTACT hContact,
 	if (ServiceExists(MS_HPP_EG_EVENT) && ServiceExists(MS_IEVIEW_EVENT) && db_get_b(0, "HistoryPlusPlus", "IEViewAPI", 0))
 		if (IDYES == CWarning::show(CWarning::WARN_HPP_APICHECK, MB_ICONWARNING | MB_YESNO))
 			db_set_b(0, "HistoryPlusPlus", "IEViewAPI", 0);
+
+	return pWindow;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -434,7 +442,6 @@ void TSAPI CreateImageList(bool bInitial)
 static TIconDesc _toolbaricons[] =
 {
 	{ "tabSRMM_mlog", LPGEN("Message Log options"), 0, -IDI_MSGLOGOPT, 1 }, // 2
-	{ "tabSRMM_multi", LPGEN("Image tag"), 0, -IDI_IMAGETAG, 1 },
 	{ "tabSRMM_quote", LPGEN("Quote text"), 0, -IDI_QUOTE, 1 },
 	{ "tabSRMM_save", LPGEN("Save and close"), &PluginConfig.g_buttonBarIcons[ICON_BUTTON_SAVE], -IDI_SAVE, 1 },
 	{ "tabSRMM_send", LPGEN("Send message"), &PluginConfig.g_buttonBarIcons[ICON_BUTTON_SEND], -IDI_SEND, 1 },

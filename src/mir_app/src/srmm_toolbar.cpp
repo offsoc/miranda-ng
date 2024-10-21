@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "stdafx.h"
 #include "chat.h"
+#include "file.h"
 #include "skin.h"
 
 #define BB_MODULE_NAME "SRMM_Toolbar"
@@ -862,6 +863,49 @@ static int ConvertToolbarData(const char *szSetting, void*)
 	return 0;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////
+// predefined kernel buttons
+
+static int OnToolbarLoaded(WPARAM, LPARAM)
+{
+	// predefined button
+	BBButton bbd = {};
+	bbd.bbbFlags = BBBF_ISIMBUTTON | BBBF_ISCHATBUTTON | BBBF_NOREADONLY | BBBF_CREATEBYID;
+	bbd.dwButtonID = IDC_CODE;
+	bbd.dwDefPos = 150;
+	bbd.hIcon = g_plugin.getIconHandle(IDI_CODE);
+	bbd.pszModuleName = SRMM_MODULE;
+	bbd.pwszTooltip = LPGENW("Custom BBCodes");
+	g_plugin.addButton(&bbd);
+
+	bbd.bbbFlags = BBBF_ISIMBUTTON | BBBF_ISCHATBUTTON | BBBF_NOREADONLY;
+	bbd.dwButtonID = 1;
+	bbd.dwDefPos = 50;
+	bbd.hIcon = g_plugin.getIconHandle(IDI_ATTACH);
+	bbd.pszModuleName = SRFILEMODULE;
+	bbd.pwszTooltip = LPGENW("Send file");
+	g_plugin.addButton(&bbd);
+	return 0;
+}
+
+static int OnToolbarClicked(WPARAM, LPARAM lParam)
+{
+	CustomButtonClickData *cbcd = (CustomButtonClickData *)lParam;
+	if (mir_strcmp(cbcd->pszModule, SRMM_MODULE))
+		return 0;
+
+	HMENU hMenu = CreatePopupMenu();
+	for (int i = 0; i < N_CUSTOM_BBCODES; i++)
+		AppendMenuW(hMenu, MF_STRING, i + 1, wszBbcodes[i]);
+
+	int ret = TrackPopupMenu(hMenu, TPM_RETURNCMD, cbcd->pt.x, cbcd->pt.y, 0, cbcd->hwndFrom, nullptr);
+	if (ret != 0)
+		PostMessage(cbcd->hwndFrom, WM_COMMAND, IDC_CODE, ret);
+	return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
 void LoadSrmmToolbarModule()
 {
 	CreateServiceFunction("SRMsg/BroadcastMessage", BroadcastMessage);
@@ -884,6 +928,9 @@ void LoadSrmmToolbarModule()
 
 	dwSepCount = db_get_dw(0, BB_MODULE_NAME, "SeparatorsCount", 0);
 	CB_RegisterSeparators();
+
+	HookEvent(ME_MSG_BUTTONPRESSED, OnToolbarClicked);
+	HookEvent(ME_MSG_TOOLBARLOADED, OnToolbarLoaded);
 }
 
 void UnloadSrmmToolbarModule()

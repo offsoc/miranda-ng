@@ -40,8 +40,7 @@ static void __stdcall Chat_DismissPopup(void *pi)
 {
 	SESSION_INFO *si = (SESSION_INFO*)pi;
 	if (si->hContact)
-		if (Clist_GetEvent(si->hContact, 0))
-			Clist_RemoveEvent(si->hContact, GC_FAKE_EVENT);
+		si->markRead(true);
 
 	if (si->pDlg && si->pDlg->timerFlash.Stop())
 		FlashWindow(si->pDlg->GetHwnd(), FALSE);
@@ -184,7 +183,7 @@ passed:
 
 	if (iNewEvent == GC_EVENT_MESSAGE) {
 		ShowPopup(si->hContact, si, g_chatApi.getIcon(GC_EVENT_MESSAGE), si->pszModule, si->ptszName, clr ? clr : g_chatApi.aFonts[9].color,
-			L"%s%s:%s %s", bbStart, gce->pszNick.w, bbEnd, g_chatApi.RemoveFormatting(gce->pszText.w));
+			L"%s%s:%s %s", bbStart, gce->pszNick.w, bbEnd, gce->pszText.w);
 	}
 	else oldDoPopup(si, gce);
 
@@ -223,17 +222,12 @@ BOOL DoSoundsFlashPopupTrayStuff(SESSION_INFO *si, GCEVENT *gce, BOOL bHighlight
 		if (Chat::bFlashWindowHighlight && bInactive)
 			bMustFlash = true;
 
-		bMustAutoswitch = true;
+		bMustAutoswitch = g_plugin.bAutoSwitchTabs;
 		if (g_plugin.bCreateWindowOnHighlight && dat == nullptr) {
-			Clist_ContactDoubleClicked(si->hContact);
-			bActiveTab = true;
-			bInactive = bMustAutoswitch = bMustFlash = false;
-		}
-
-		if (dat && g_plugin.bAnnoyingHighlight && bInactive && dat->m_pContainer->m_hwnd != GetForegroundWindow()) {
-			bActiveTab = true;
-			bInactive = bMustAutoswitch = bMustFlash = false;
-			dat->ActivateTab();
+			ShowRoom(0, si);
+			dat = si->pDlg;
+			bInactive = (dat) ? !dat->IsActive() : true;
+			bMustFlash = false;
 		}
 	}
 	else {

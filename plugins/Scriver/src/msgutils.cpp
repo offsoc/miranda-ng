@@ -101,7 +101,7 @@ void CMsgDialog::EventAdded(MEVENT hDbEvent, const DB::EventInfo &dbei)
 		else
 			RemakeLog();
 
-		if (!(dbei.flags & DBEF_SENT) && !dbei.isSrmm()) {
+		if (!(dbei.flags & DBEF_SENT) && !dbei.isCustom(DETF_MSGWINDOW)) {
 			if (!bIsActive) {
 				m_iShowUnread = 1;
 				UpdateIcon();
@@ -168,6 +168,12 @@ bool CMsgDialog::GetFirstEvent()
 		}
 	}
 	return notifyUnread;
+}
+
+void CMsgDialog::GetInputFont(LOGFONTW &lf, COLORREF &bg, COLORREF &fg) const
+{
+	bg = m_clrInputBG;
+	LoadMsgDlgFont(MSGFONTID_MESSAGEAREA, &lf, &fg);
 }
 
 void CMsgDialog::FixTabIcons()
@@ -391,11 +397,6 @@ void CMsgDialog::Reattach(HWND hwndContainer)
 		ShowWindow(hParent, SW_SHOWNA);
 		EnableWindow(hParent, TRUE);
 	}
-}
-
-void CMsgDialog::RemakeLog()
-{
-	m_pLog->LogEvents(m_hDbEventFirst, -1, 0);
 }
 
 void CMsgDialog::SetDialogToType()

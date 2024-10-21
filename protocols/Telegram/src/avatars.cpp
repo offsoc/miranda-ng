@@ -149,7 +149,7 @@ INT_PTR __cdecl CTelegramProto::SvcOfflineFile(WPARAM param, LPARAM)
 /////////////////////////////////////////////////////////////////////////////////////////
 // Cloud file pre-creator
 
-void CTelegramProto::OnReceiveOfflineFile(DB::FILE_BLOB &blob)
+void CTelegramProto::OnReceiveOfflineFile(DB::EventInfo&, DB::FILE_BLOB &blob)
 {
 	if (auto *ft = (TG_FILE_REQUEST *)blob.getUserInfo()) {
 		blob.setUrl(ft->m_uniqueId.GetBuffer());
@@ -255,7 +255,10 @@ void CTelegramProto::ProcessFile(TD::updateFile *pObj)
 			}
 			else MoveFileW(wszExistingFile, wszFullName);
 
-			SmileyAdd_LoadContactSmileys(SMADD_FILE, m_szModuleName, wszFullName);
+			if (F->m_isSmiley)
+				SmileyAdd_LoadContactSmileys(SMADD_FILE, m_szModuleName, wszFullName);
+			else
+				NS_NotifyFileReady(wszFullName);
 
 			mir_cslock lck(m_csFiles);
 			m_arFiles.remove(F);

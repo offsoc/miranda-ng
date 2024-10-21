@@ -17,40 +17,13 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #include "stdafx.h"
 
-/* MESSAGE SENDING */
-
-// outcoming message flow
-int CSkypeProto::SendMsg(MCONTACT hContact, MEVENT, const char *szMessage)
-{
-	if (!IsOnline())
-		return -1;
-
-	SendMessageParam *param = new SendMessageParam();
-	param->hContact = hContact;
-	Utils_GetRandom(&param->hMessage, sizeof(param->hMessage));
-	param->hMessage &= ~0x80000000;
-
-	CMStringA id(getId(hContact));
-
-	AsyncHttpRequest *pReq;
-	if (strncmp(szMessage, "/me ", 4) == 0)
-		pReq = new SendActionRequest(id, param->hMessage, &szMessage[4], this);
-	else
-		pReq = new SendMessageRequest(id, param->hMessage, szMessage);
-	pReq->pUserInfo = param;
-	PushRequest(pReq);
-
-	mir_cslock lck(m_lckOutMessagesList);
-	m_OutMessages.insert((void*)param->hMessage);
-	return param->hMessage;
-}
+/////////////////////////////////////////////////////////////////////////////////////////
+// MESSAGE SENDING
 
 void CSkypeProto::OnMessageSent(MHttpResponse *response, AsyncHttpRequest *pRequest)
 {
-	auto *param = (SendMessageParam*)pRequest->pUserInfo;
-	MCONTACT hContact = param->hContact;
-	HANDLE hMessage = (HANDLE)param->hMessage;
-	delete param;
+	MCONTACT hContact = pRequest->hContact;
+	HANDLE hMessage = (HANDLE)pRequest->pUserInfo;
 
 	if (response != nullptr) {
 		if (response->resultCode != 201) {
@@ -67,6 +40,39 @@ void CSkypeProto::OnMessageSent(MHttpResponse *response, AsyncHttpRequest *pRequ
 		}
 	}
 	else ProtoBroadcastAck(hContact, ACKTYPE_MESSAGE, ACKRESULT_FAILED, hMessage, (LPARAM)TranslateT("Network error!"));
+}
+
+// outcoming message flow
+int CSkypeProto::SendMsg(MCONTACT hContact, MEVENT, const char *szMessage)
+{
+	if (!IsOnline())
+		return -1;
+
+	uint32_t hMessage;
+	Utils_GetRandom(&hMessage, sizeof(hMessage));
+	hMessage &= ~0x80000000;
+
+	CMStringA str(szMessage);
+	bool bRich = AddBbcodes(str);
+
+	CMStringA szUrl = "/users/ME/conversations/" + mir_urlEncode(getId(hContact)) + "/messages";
+	AsyncHttpRequest *pReq = new AsyncHttpRequest(REQUEST_POST, HOST_DEFAULT, szUrl, &CSkypeProto::OnMessageSent);
+	pReq->hContact = hContact;
+	pReq->pUserInfo = (HANDLE)hMessage;
+
+	JSONNode node;
+	node << INT64_PARAM("clientmessageid", hMessage) << CHAR_PARAM("messagetype", bRich ? "RichText" : "Text") << CHAR_PARAM("contenttype", "text");
+	if (strncmp(str, "/me ", 4) == 0)
+		node << CHAR_PARAM("content", m_szSkypename + " " + str);
+	else
+		node << CHAR_PARAM("content", str);
+	pReq->m_szParam = node.write().c_str();
+
+	PushRequest(pReq);
+
+	mir_cslock lck(m_lckOutMessagesList);
+	m_OutMessages.insert((void*)hMessage);
+	return hMessage;
 }
 
 // preparing message/action to be written into db
@@ -90,7 +96,18 @@ int CSkypeProto::OnPreCreateMessage(WPARAM, LPARAM lParam)
 bool CSkypeProto::ParseMessage(const JSONNode &node, DB::EventInfo &dbei)
 {
 	int nEmoteOffset = node["skypeemoteoffset"].as_int();
-	CMStringW wszContent = node["content"].as_mstring();
+
+	auto &pContent = node["content"];
+	if (!pContent) {
+LBL_Deleted:
+		if (dbei)
+			db_event_delete(dbei.getEvent());
+		return false;
+	}
+	
+	CMStringW wszContent = pContent.as_mstring();
+	if (wszContent.IsEmpty())
+		goto LBL_Deleted;
 
 	std::string strMessageType = node["messagetype"].as_string();
 	if (strMessageType == "RichText/Media_GenericFile" || strMessageType == "RichText/Media_Video" || strMessageType == "RichText/UriObject" ) {
@@ -103,8 +120,9 @@ bool CSkypeProto::ParseMessage(const JSONNode &node, DB::EventInfo &dbei)
 	}
 
 	if (strMessageType == "Text" || strMessageType == "RichText") {
-		if ((dbei.flags & DBEF_SENT) && dbei.szId) {
-			HANDLE hMessage = (HANDLE)atoi(dbei.szId);
+		std::string szOwnMessageId = node["clientmessageid"].as_string();
+		if ((dbei.flags & DBEF_SENT) && !szOwnMessageId.empty()) {
+			HANDLE hMessage = (HANDLE)atoi(szOwnMessageId.c_str());
 			if (m_OutMessages.getIndex(hMessage) != -1) {
 				ProtoBroadcastAck(dbei.hContact, ACKTYPE_MESSAGE, ACKRESULT_SUCCESS, hMessage, (LPARAM)dbei.szId);
 
@@ -145,21 +163,21 @@ void CSkypeProto::ProcessNewMessage(const JSONNode &node)
 	int iUserType;
 	UrlToSkypeId(node["conversationLink"].as_string().c_str(), &iUserType);
 
-	CMStringA szMessageId = node["clientmessageid"] ? node["clientmessageid"].as_mstring() : node["skypeeditedid"].as_mstring();
+	CMStringA szMessageId = node["id"].as_mstring();
 	CMStringA szConversationName(UrlToSkypeId(node["conversationLink"].as_string().c_str()));
 	CMStringA szFromSkypename(UrlToSkypeId(node["from"].as_mstring()));
-
-	MCONTACT hContact = AddContact(szConversationName, nullptr, true);
-
-	if (m_bHistorySynced) {
-		int64_t lastMsgId = _atoi64(node["id"].as_string().c_str());
-		if (lastMsgId > getLastTime(hContact))
-			setLastTime(hContact, lastMsgId);
-	}
 
 	if (iUserType == 19)
 		if (OnChatEvent(node))
 			return;
+
+	MCONTACT hContact = AddContact(szConversationName, nullptr, true);
+
+	if (m_bHistorySynced) {
+		int64_t lastMsgId = _atoi64(szMessageId);
+		if (lastMsgId > getLastTime(hContact))
+			setLastTime(hContact, lastMsgId);
+	}
 
 	std::string strMessageType = node["messagetype"].as_string();
 	if (strMessageType == "Control/Typing") {
@@ -198,11 +216,18 @@ void CSkypeProto::OnMarkRead(MCONTACT hContact, MEVENT hDbEvent)
 	}
 }
 
-void CSkypeProto::OnReceiveOfflineFile(DB::FILE_BLOB &blob)
+void CSkypeProto::OnReceiveOfflineFile(DB::EventInfo &dbei, DB::FILE_BLOB &blob)
 {
 	if (auto *ft = (CSkypeTransfer *)blob.getUserInfo()) {
 		blob.setUrl(ft->url);
 		blob.setSize(ft->iFileSize);
+
+		auto &json = dbei.setJson();
+		json << CHAR_PARAM("skft", ft->fileType);
+		if (ft->iHeight != -1)
+			json << INT_PARAM("h", ft->iHeight);
+		if (ft->iWidth != -1)
+			json << INT_PARAM("w", ft->iWidth);
 		delete ft;
 	}
 }
@@ -217,16 +242,15 @@ void CSkypeProto::ProcessFileRecv(MCONTACT hContact, const char *szContent, DB::
 	if (xmlRoot == nullptr)
 		return;
 
-	const char *pszFileType = 0;
 	CSkypeTransfer *ft = new CSkypeTransfer;
 	if (auto *str = xmlRoot->Attribute("doc_id"))
 		ft->docId = str;
 	if (auto *str = xmlRoot->Attribute("uri"))
 		ft->url = str;
-	int iWidth = xmlRoot->IntAttribute("width", -1);
-	int iHeight = xmlRoot->IntAttribute("heighr", -1);
+	ft->iWidth = xmlRoot->IntAttribute("width", -1);
+	ft->iHeight = xmlRoot->IntAttribute("heighr", -1);
 	if (auto *str = xmlRoot->Attribute("type"))
-		pszFileType = str;
+		ft->fileType = str;
 	if (auto *xml = xmlRoot->FirstChildElement("FileSize"))
 		if (auto *str = xml->Attribute("v"))
 			ft->iFileSize = atoi(str);
@@ -240,35 +264,25 @@ void CSkypeProto::ProcessFileRecv(MCONTACT hContact, const char *szContent, DB::
 		return;
 	}
 
+	int idx = ft->fileType.Find('/');
+	if (idx != -1)
+		ft->fileType = ft->fileType.Left(idx);
+
 	// ordinary file
-	if (!mir_strcmp(pszFileType, "File.1") || !mir_strcmp(pszFileType, "Picture.1") || !mir_strcmp(pszFileType, "Video.1")) {
+	if (ft->fileType == "File.1" || ft->fileType == "Picture.1" || ft->fileType == "Video.1") {
 		MEVENT hEvent;
 		dbei.flags |= DBEF_TEMPORARY | DBEF_JSON;
 		if (dbei) {
 			DB::FILE_BLOB blob(dbei);
-			OnReceiveOfflineFile(blob);
+			OnReceiveOfflineFile(dbei, blob);
 			blob.write(dbei);
 			db_event_edit(dbei.getEvent(), &dbei, true);
 			delete ft;
 			hEvent = dbei.getEvent();
 		}
 		else hEvent = ProtoChainRecvFile(hContact, DB::FILE_BLOB(ft, ft->fileName), dbei);
-
-		DBVARIANT dbv = { DBVT_UTF8 };
-		dbv.pszVal = (char*)pszFileType;
-		db_event_setJson(hEvent, "skft", &dbv);
-
-		dbv.type = DBVT_DWORD;
-		if (iWidth != -1) {
-			dbv.dVal = iWidth;
-			db_event_setJson(hEvent, "w", &dbv);
-		}
-		if (iHeight != -1) {
-			dbv.dVal = iHeight;
-			db_event_setJson(hEvent, "h", &dbv);
-		}
 	}
-	else debugLogA("Invalid or unsupported file type <%s> ignored", pszFileType);
+	else debugLogA("Invalid or unsupported file type <%s> ignored", ft->fileType.c_str());
 }
 
 void CSkypeProto::ProcessContactRecv(MCONTACT hContact, const char *szContent, DB::EventInfo &dbei)

@@ -18,35 +18,6 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #ifndef _SKYPE_REQUEST_CHATS_H_
 #define _SKYPE_REQUEST_CHATS_H_
 
-struct SendChatMessageRequest : public AsyncHttpRequest
-{
-	SendChatMessageRequest(const char *to, time_t timestamp, const char *message) :
-		AsyncHttpRequest(REQUEST_POST, HOST_DEFAULT)
-	{
-		m_szUrl.AppendFormat("/users/ME/conversations/%s/messages", to);
-
-		JSONNode node;
-		node << CHAR_PARAM("clientmessageid", CMStringA(::FORMAT, "%llu000", (ULONGLONG)timestamp))
-			<< CHAR_PARAM("messagetype", "RichText") << CHAR_PARAM("contenttype", "text") << CHAR_PARAM("content", message);
-		m_szParam = node.write().c_str();
-	}
-};
-
-struct SendChatActionRequest : public AsyncHttpRequest
-{
-	SendChatActionRequest(const char *to, time_t timestamp, const char *message) :
-		AsyncHttpRequest(REQUEST_POST, HOST_DEFAULT)
-	{
-		m_szUrl.AppendFormat("/users/ME/conversations/%s/messages", to);
-
-		JSONNode node(JSON_NODE);
-		node << CHAR_PARAM("clientmessageid", CMStringA(::FORMAT, "%llu000", (ULONGLONG)timestamp))
-			<< CHAR_PARAM("messagetype", "RichText") << CHAR_PARAM("contenttype", "text")
-			<< CHAR_PARAM("content", message) << INT_PARAM("skypeemoteoffset", 4);
-		m_szParam = node.write().c_str();
-	}
-};
-
 struct CreateChatroomRequest : public AsyncHttpRequest
 {
 	CreateChatroomRequest(const LIST<char> &skypenames, CSkypeProto *ppro) :
@@ -63,15 +34,6 @@ struct CreateChatroomRequest : public AsyncHttpRequest
 		}
 		node << members;
 		m_szParam = node.write().c_str();
-	}
-};
-
-struct DestroyChatroomRequest : public AsyncHttpRequest
-{
-	DestroyChatroomRequest(const char *room_id) :
-		AsyncHttpRequest(REQUEST_DELETE, HOST_DEFAULT)
-	{
-		m_szUrl.AppendFormat("/users/ME/conversations/%s/messages", room_id);
 	}
 };
 
@@ -111,15 +73,6 @@ struct InviteUserToChatRequest : public AsyncHttpRequest
 		JSONNode node;
 		node << CHAR_PARAM("role", role);
 		m_szParam = node.write().c_str();
-	}
-};
-
-struct KickUserRequest : public AsyncHttpRequest
-{
-	KickUserRequest(const char *chatId, const char *skypename) :
-		AsyncHttpRequest(REQUEST_DELETE, HOST_DEFAULT)
-	{
-		m_szUrl.AppendFormat("/threads/%s/members/%s", chatId, skypename);
 	}
 };
 

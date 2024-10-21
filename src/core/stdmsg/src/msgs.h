@@ -36,7 +36,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	friend class CTabbedWindow;
 	typedef CSrmmBaseDialog CSuper;
 
-	void Init(void);
 	void NotifyTyping(int mode);
 	void SetButtonsPos(void);
 	void ShowTime(bool bForce);
@@ -84,7 +83,6 @@ class CMsgDialog : public CSrmmBaseDialog
 
 public:
 	CMsgDialog(CTabbedWindow *pOwner, MCONTACT hContact);
-	CMsgDialog(CTabbedWindow *pOwner, SESSION_INFO *si);
 
 	bool OnInitDialog() override;
 	void OnDestroy() override;
@@ -138,10 +136,10 @@ public:
 	void DrawNickList(USERINFO *ui, DRAWITEMSTRUCT *dis) override;
 	void EventAdded(MEVENT, const DB::EventInfo &dbei) override;
 	bool GetFirstEvent() override;
+	void GetInputFont(LOGFONTW &lf, COLORREF &bg, COLORREF &fg) const override;
 	bool IsActive() const override;
 	void LoadSettings() override;
 	void OnOptionsApplied() override;
-	void RemakeLog() override;
 	void SetStatusText(const wchar_t *, HICON) override;
 	void ShowFilterMenu() override;
 	void UpdateFilterButton() override;

@@ -18,6 +18,42 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #include "stdafx.h"
 
+struct NSWebCache
+{
+	NSWebCache(NSWebPage *_1, const wchar_t *_2, ItemData *_3) :
+		pPage(_1),
+		pItem(_3),
+		wszPath(_2)
+	{}
+
+	ItemData *pItem;
+	NSWebPage *pPage;
+	CMStringW  wszPath;
+};
+
+static int CompareFiles(const NSWebCache *p1, const NSWebCache *p2)
+{
+	return mir_wstrcmp(p1->wszPath, p2->wszPath);
+}
+
+static mir_cs g_csMissingFiles;
+static OBJLIST<NSWebCache> g_arMissingFiles(10, CompareFiles);
+
+INT_PTR SvcFileReady(WPARAM wParam, LPARAM)
+{
+	NSWebCache tmp(0, (const wchar_t *)wParam, 0);
+
+	mir_cslock lck(g_csMissingFiles);
+	if (auto *pCache = g_arMissingFiles.find(&tmp)) {
+		pCache->pPage->load_image(tmp.wszPath, pCache->pItem);
+		pCache->pItem->m_doc = 0;
+		pCache->pItem->savedHeight = -1;
+		pCache->pItem->setText();
+		g_arMissingFiles.remove(pCache);
+	}
+	return 0;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 // Litehtml interface
 
@@ -85,9 +121,6 @@ NSWebPage::NSWebPage(NewstoryListData &_1) :
 	m_hClipRgn = NULL;
 	m_tmp_hdc = GetDC(NULL);
 
-	GdiplusStartupInput gdiplusStartupInput;
-	GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, NULL);
-
 	EnumFonts(m_tmp_hdc, NULL, EnumFontsProc, (LPARAM)this);
 	m_installed_fonts.insert(L"monospace");
 	m_installed_fonts.insert(L"serif");
@@ -99,12 +132,22 @@ NSWebPage::NSWebPage(NewstoryListData &_1) :
 NSWebPage::~NSWebPage()
 {
 	clear_images();
-	GdiplusShutdown(m_gdiplusToken);
-
-	if (m_hClipRgn) {
-		DeleteObject(m_hClipRgn);
+	{
+		mir_cslock lck(g_csMissingFiles);
+		for (auto &it : g_arMissingFiles.rev_iter())
+			if (it->pPage == this)
+				g_arMissingFiles.remove(g_arMissingFiles.indexOf(&it));
 	}
+
+	if (m_hClipRgn)
+		DeleteObject(m_hClipRgn);
+
 	ReleaseDC(NULL, m_tmp_hdc);
+}
+
+void NSWebPage::draw()
+{
+	ctrl.ScheduleDraw();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -282,12 +325,7 @@ void NSWebPage::draw_list_marker(uint_ptr hdc, const list_marker &marker)
 	release_clip((HDC)hdc);
 }
 
-void NSWebPage::make_url_utf8(const char *url, const char *basepath, std::wstring &out)
-{
-	make_url(Utf2T(url), Utf2T(basepath), out);
-}
-
-Bitmap* NSWebPage::load_image(const wchar_t *pwszUrl)
+Bitmap* NSWebPage::load_image(const wchar_t *pwszUrl, ItemData *pItem)
 {
 	mir_cslockfull lck(m_csImages);
 	auto img = m_images.find(pwszUrl);
@@ -298,13 +336,18 @@ Bitmap* NSWebPage::load_image(const wchar_t *pwszUrl)
 		add_image(pwszUrl, newImg);
 		return (Bitmap *)newImg;
 	}
-	return 0;
+
+	NSWebCache tmp(this, pwszUrl, pItem);
+	mir_cslock lck2(g_csMissingFiles);
+	if (!g_arMissingFiles.find(&tmp))
+		g_arMissingFiles.insert(new NSWebCache(tmp));
+
+	return g_plugin.m_pNoImage;
 }
 
-void NSWebPage::load_image(const char *src, const char *baseurl, bool redraw_on_ready)
+void NSWebPage::load_image(const char *src, const char */*baseurl*/, bool redraw_on_ready)
 {
-	std::wstring url;
-	make_url_utf8(src, baseurl, url);
+	std::wstring url = Utf2T(src);
 
 	mir_cslockfull lck(m_csImages);
 	if (m_images.count(url) == 0) {
@@ -331,27 +374,25 @@ Bitmap* NSWebPage::find_image(const wchar_t *pwszUrl)
 	return nullptr;
 }
 
-void NSWebPage::get_image_size(const char *src, const char *baseurl, size &sz)
+void NSWebPage::get_image_size(const char *src, const char * /*baseurl*/, size &sz)
 {
-	std::wstring url;
-	make_url_utf8(src, baseurl, url);
+	std::wstring url = Utf2T(src);
 
 	mir_cslock lck(m_csImages);
 	images_map::iterator img = m_images.find(url);
 	if (img != m_images.end() && img->second)
 		get_img_size(img->second, sz);
 	else
-		sz.width = sz.height = 0;
+		sz.width = sz.height = 48;
 }
 
 void NSWebPage::clear_images()
 {
 	mir_cslock lck(m_csImages);
-	for (auto &img : m_images) {
-		if (img.second) {
-			free_image(img.second);
-		}
-	}
+	for (auto &img : m_images)
+		if (img.second)
+			delete (Bitmap *)img.second;
+
 	m_images.clear();
 }
 
@@ -490,23 +531,16 @@ void NSWebPage::get_img_size(uint_ptr img, size &sz)
 	}
 }
 
-void NSWebPage::free_image(uint_ptr img)
-{
-	Bitmap *bmp = (Bitmap *)img;
-	delete bmp;
-}
-
-void NSWebPage::draw_image(uint_ptr _hdc, const background_layer &bg, const std::string &src, const std::string &base_url)
+void NSWebPage::draw_image(uint_ptr _hdc, const background_layer &bg, const std::string &src, const std::string& /*base_url*/)
 {
 	if (src.empty() || (!bg.clip_box.width && !bg.clip_box.height))
 		return;
 
-	std::wstring url;
-	make_url_utf8(src.c_str(), base_url.c_str(), url);
+	std::wstring url = Utf2T(src.c_str());
 	
 	Bitmap *bgbmp = find_image(url.c_str());
 	if (!bgbmp)
-		return;
+		bgbmp = g_plugin.m_pNoImage;
 
 	Graphics graphics((HDC)_hdc);
 	graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
@@ -684,11 +718,6 @@ void NSWebPage::get_client_rect(position &pos) const
 
 void NSWebPage::import_css(std::string &, const std::string &, std::string &)
 {
-}
-
-void NSWebPage::make_url(LPCWSTR url, LPCWSTR, std::wstring &out)
-{
-	out = url;
 }
 
 void NSWebPage::on_anchor_click(const char *pszUtl, const element::ptr &)

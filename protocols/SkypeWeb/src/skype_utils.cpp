@@ -344,18 +344,7 @@ const HtmlEntity htmlEntities[] =
 	{ "zwnj", "\xE2\x80\x8C" }
 };
 
-static void Utf32toUtf16(uint32_t c, CMStringW &dest)
-{
-	if (c < 0x10000)
-		dest.AppendChar(c);
-	else {
-		unsigned int t = c - 0x10000;
-		dest.AppendChar((((t << 12) >> 22) + 0xD800));
-		dest.AppendChar((((t << 22) >> 22) + 0xDC00));
-	}
-}
-
-CMStringW RemoveHtml(const CMStringW &data)
+CMStringW CSkypeProto::RemoveHtml(const CMStringW &data, bool bCheckSS)
 {
 	bool inSS = false;
 	CMStringW new_string;
@@ -363,10 +352,34 @@ CMStringW RemoveHtml(const CMStringW &data)
 	for (int i = 0; i < data.GetLength(); i++) {
 		wchar_t c = data[i];
 		if (c == '<') {
-			if (!wcsncmp(data.c_str() + i + 1, L"ss ", 3))
+			if (bCheckSS && !wcsncmp(data.c_str() + i + 1, L"ss ", 3))
 				inSS = true;
-			else if (!wcsncmp(data.c_str() + i + 1, L"/ss>", 4))
+			else if (!wcsncmp(data.c_str() + i + 1, L"/ss>", 4)) {
+				CMStringW wszStatusMsg = data.Mid(i + 5);
+				wszStatusMsg.Trim();
+				m_wstrMoodMessage = wszStatusMsg;
 				inSS = false;
+			}
+			else if (m_bUseBBCodes) {
+				bool bEnable = true;
+				if (data[i + 1] == '/') {
+					i++;
+					bEnable = false;
+				}
+
+				switch (data[i + 1]) {
+				case 'b': new_string.Append(bEnable ? L"[b]" : L"[/b]"); break;
+				case 'i': new_string.Append(bEnable ? L"[i]" : L"[/i]"); break;
+				case 'u': new_string.Append(bEnable ? L"[u]" : L"[/u]"); break;
+				case 's': new_string.Append(bEnable ? L"[s]" : L"[/s]"); break;
+				default:
+					if (!wcsncmp(data.c_str() + i + 1, L"pre ", 4))
+						new_string.Append(L"[code]");
+					else if (!wcsncmp(data.c_str() + i + 1, L"pre>", 4))
+						new_string.Append(L"[/code]");
+					break;
+				}
+			}
 
 			i = data.Find('>', i);
 			if (i == -1)
@@ -441,12 +454,17 @@ CMStringW RemoveHtml(const CMStringW &data)
 		}
 
 		if (c == '(' && inSS) {
-			uint32_t code = 0;
-			if (1 == swscanf(data.c_str() + i + 1, L"%x_", &code))
-				Utf32toUtf16(code, new_string);
-
 			int iEnd = data.Find(')', i);
 			if (iEnd != -1) {
+				CMStringW ss(data.Mid(i + 1, iEnd - i - 1));
+				uint32_t code = getMoodIndex(T2Utf(ss));
+				if (code != -1)
+					m_iMood = code;
+				else if (1 == swscanf(ss, L"%x_", &code)) {
+					Utf32toUtf16(code, new_string);
+					m_wstrMoodEmoji = new_string;
+				}
+
 				i = iEnd;
 				continue;
 			}
@@ -456,6 +474,91 @@ CMStringW RemoveHtml(const CMStringW &data)
 	}
 
 	return new_string;
+}
+
+bool AddBbcodes(CMStringA &str)
+{
+	bool bUsed = false;
+	CMStringA ret;
+
+	for (const char *p = str; *p; p++) {
+		if (*p == '[') {
+			p++;
+			if (!strncmp(p, "b]", 2)) {
+				p++;
+				ret.Append("<b _pre=\"*\" _post=\"*\">");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "/b]", 3)) {
+				p += 2;
+				ret.Append("</b>");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "i]", 2)) {
+				p++;
+				ret.Append("<i _pre=\"_\" _post=\"_\">");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "/i]", 3)) {
+				p += 2;
+				ret.Append("</i>");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "s]", 2)) {
+				p++;
+				ret.Append("<s _pre=\"~\" _post=\"~\">");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "/s]", 3)) {
+				p += 2;
+				ret.Append("</s>");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "code]", 5)) {
+				p += 4;
+				ret.Append("<pre _pre=\"```\" _post=\"```\">");
+				bUsed = true;
+			}
+			else if (!strncmp(p, "/code]", 6)) {
+				p += 5;
+				ret.Append("</pre>");
+				bUsed = true;
+			}
+		}
+		else ret.AppendChar(*p);
+	}
+
+	if (bUsed)
+		str = ret;
+	return bUsed;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+void Utf32toUtf16(uint32_t c, CMStringW &dest)
+{
+	if (c < 0x10000)
+		dest.AppendChar(c);
+	else {
+		unsigned int t = c - 0x10000;
+		dest.AppendChar((((t << 12) >> 22) + 0xD800));
+		dest.AppendChar((((t << 22) >> 22) + 0xDC00));
+	}
+}
+
+bool is_surrogate(wchar_t uc) { return (uc - 0xd800u) < 2048u; }
+bool is_high_surrogate(wchar_t uc) { return (uc & 0xfffffc00) == 0xd800; }
+bool is_low_surrogate(wchar_t uc) { return (uc & 0xfffffc00) == 0xdc00; }
+
+uint32_t Utf16toUtf32(const wchar_t *str)
+{
+	if (!is_surrogate(str[0]))
+		return str[0];
+
+	if (is_high_surrogate(str[0]) && is_low_surrogate(str[1]))
+		return (str[0] << 10) + str[1] - 0x35fdc00;
+
+	return 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -586,7 +689,7 @@ CMStringW ParseUrl(const wchar_t *url, const wchar_t *token)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-static int possibleTypes[] = { 1, 2, 8, 19 };
+static int possibleTypes[] = { 1, 2, 4, 8, 19, 28 };
 
 bool IsPossibleUserType(const char *pszUserId)
 {

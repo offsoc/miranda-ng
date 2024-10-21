@@ -20,12 +20,14 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 void CTelegramProto::OnEndSession(td::ClientManager::Response&)
 {
 	m_bTerminated = true;
+	delSetting(DBKEY_AUTHORIZED);
 }
 
 void __cdecl CTelegramProto::ServerThread(void *)
 {
 	m_botIds.clear();
 
+	bool bWasAuthorized = getBool(DBKEY_AUTHORIZED);
 	m_bTerminated = m_bAuthorized = false;
 	m_pClientManager = std::make_unique<td::ClientManager>();
 	m_iClientId = m_pClientManager->create_client_id();
@@ -51,11 +53,13 @@ void __cdecl CTelegramProto::ServerThread(void *)
 			SendQuery(new TD::addProxy(nluSettings.szProxyServer, nluSettings.wProxyPort, true, std::move(proxyType)));
 	}
 
-	while (!m_bTerminated) {
+	while (!m_bTerminated)
 		ProcessResponse(m_pClientManager->receive(1));
-	}
 
 	m_pClientManager = std::move(nullptr);
+
+	if (!bWasAuthorized && !getBool(DBKEY_AUTHORIZED))
+		OnErase();
 }
 
 void CTelegramProto::UnregisterSession()
@@ -247,10 +251,14 @@ void CTelegramProto::ProcessResponse(td::ClientManager::Response response)
 		ProcessMarkRead((TD::updateChatReadInbox *)response.object.get());
 		break;
 
+	case TD::updateChatReadOutbox::ID:
+		ProcessRemoteMarkRead((TD::updateChatReadOutbox *)response.object.get());
+		break;
+
 	case TD::updateDeleteMessages::ID:
 		ProcessDeleteMessage((TD::updateDeleteMessages*)response.object.get());
 		break;
-
+		
 	case TD::updateConnectionState::ID:
 		ProcessConnectionState((TD::updateConnectionState *)response.object.get());
 		break;
@@ -281,8 +289,6 @@ void CTelegramProto::ProcessResponse(td::ClientManager::Response response)
 				if (auto hDbEvent = db_event_getById(m_szModuleName, szOldId))
 					db_event_updateId(hDbEvent, msg2id(pMessage));
 
-			ProcessMessage(pMessage);
-
 			TG_OWN_MESSAGE tmp(0, 0, szOldId);
 			if (auto *pOwnMsg = m_arOwnMsg.find(&tmp)) {
 				auto szMsgId = msg2id(pMessage);
@@ -293,6 +299,8 @@ void CTelegramProto::ProcessResponse(td::ClientManager::Response response)
 					db_event_delivered(pOwnMsg->hContact, hDbEvent);
 				m_arOwnMsg.remove(pOwnMsg);
 			}
+
+			ProcessMessage(pMessage);
 		}
 		break;
 
@@ -313,8 +321,16 @@ void CTelegramProto::ProcessResponse(td::ClientManager::Response response)
 		ProcessOption((TD::updateOption *)response.object.get());
 		break;
 
+	case TD::updateScopeNotificationSettings::ID:
+		ProcessScopeNotification((TD::updateScopeNotificationSettings *)response.object.get());
+		break;
+
 	case TD::updateSupergroup::ID:
 		ProcessSuperGroup((TD::updateSupergroup *)response.object.get());
+		break;
+
+	case TD::updateSupergroupFullInfo::ID:
+		ProcessSuperGroupInfo((TD::updateSupergroupFullInfo *)response.object.get());
 		break;
 
 	case TD::updateUserStatus::ID:
@@ -369,7 +385,8 @@ int CTelegramProto::SendTextMessage(int64_t chatId, int64_t threadId, int64_t re
 	pMessage->chat_id_ = chatId;
 	pMessage->input_message_content_ = std::move(pContent);
 	pMessage->message_thread_id_ = threadId;
-	pMessage->reply_to_message_id_ = replyId;
+	if (replyId)
+		pMessage->reply_to_.reset(new TD::inputMessageReplyToMessage(replyId, 0));
 	return SendQuery(pMessage, &CTelegramProto::OnSendMessage);
 }
 
@@ -452,8 +469,8 @@ void CTelegramProto::OnGetHistory(td::ClientManager::Response &response, void *p
 			dbei.flags |= DBEF_SENT;
 		if (this->GetGcUserId(pUser, pMsg, szUserId))
 			dbei.szUserId = szUserId;
-		if (pMsg->reply_to_message_id_) {
-			szReplyId = msg2id(pMsg->chat_id_, pMsg->reply_to_message_id_);
+		if (auto iReplyId = getReplyId(pMsg->reply_to_.get())) {
+			szReplyId = msg2id(pMsg->chat_id_, iReplyId);
 			dbei.szReplyId = szReplyId;
 		}
 		db_event_add(GetRealContact(pUser), &dbei);
@@ -502,7 +519,10 @@ INT_PTR CTelegramProto::SvcCanEmptyHistory(WPARAM hContact, LPARAM)
 {
 	if (auto *pUser = FindUser(GetId(hContact))) {
 		TG_SUPER_GROUP tmp(pUser->id, 0);
-		return m_arSuperGroups.find(&tmp) == nullptr;
+		if (auto *pGroup = m_arSuperGroups.find(&tmp))
+			return !pGroup->group->is_channel_;
+		
+		return 1;
 	}
 
 	return 0;
@@ -523,6 +543,7 @@ void CTelegramProto::ProcessChat(TD::updateNewChat *pObj)
 	int64_t userId;
 	auto *pChat = pObj->chat_.get();
 	std::string szTitle;
+	bool isChannel = false;
 	
 	switch (pChat->type_->get_id()) {
 	case TD::chatTypePrivate::ID:
@@ -531,12 +552,19 @@ void CTelegramProto::ProcessChat(TD::updateNewChat *pObj)
 		break;
 
 	case TD::chatTypeBasicGroup::ID:
-		userId = ((TD::chatTypeBasicGroup *)pChat->type_.get())->basic_group_id_;
+		{
+			auto *pGroup = (TD::chatTypeBasicGroup *)pChat->type_.get();
+			userId = pGroup->basic_group_id_;
+		}
 		szTitle = pChat->title_;
 		break;
 
 	case TD::chatTypeSupergroup::ID:
-		userId = ((TD::chatTypeSupergroup *)pChat->type_.get())->supergroup_id_;
+		{
+			auto *pGroup = (TD::chatTypeSupergroup *)pChat->type_.get();
+			userId = pGroup->supergroup_id_;
+			isChannel = pGroup->is_channel_;
+		}
 		szTitle = pChat->title_;
 		break;
 
@@ -552,6 +580,7 @@ void CTelegramProto::ProcessChat(TD::updateNewChat *pObj)
 	}
 
 	pUser->chatId = pChat->id_;
+	pUser->isChannel = isChannel;
 
 	MCONTACT hContact = (pUser->id == m_iOwnId) ? 0 : pUser->hContact;
 
@@ -559,10 +588,8 @@ void CTelegramProto::ProcessChat(TD::updateNewChat *pObj)
 		m_arChats.insert(pUser);
 
 	if (!szTitle.empty()) {
-		if (hContact != INVALID_CONTACT_ID) {
-			setUString(hContact, "Nick", szTitle.c_str());
-			pUser->wszNick = Utf2T(szTitle.c_str());
-		}
+		if (hContact != INVALID_CONTACT_ID)
+			GcChangeTopic(pUser, szTitle);
 		else if (pUser->wszNick.IsEmpty())
 			pUser->wszFirstName = Utf2T(szTitle.c_str());
 	}
@@ -639,21 +666,20 @@ void CTelegramProto::ProcessChatNotification(TD::updateChatNotificationSettings 
 		return;
 
 	auto &pSettings = pObj->notification_settings_;
-	if (!pSettings->use_default_mute_for_ && pSettings->mute_for_ != 0)
-		Chat_Mute(pUser->hContact, CHATMODE_MUTE);
+
+	bool bNever = Chat_IsMuted(pUser->hContact) == CHATMODE_UNMUTE;
+	TD::int32 muteFor;
+	if (!pSettings->use_default_mute_for_)
+		muteFor = pSettings->mute_for_;
 	else
-		Chat_Mute(pUser->hContact, CHATMODE_NORMAL);
+		muteFor = GetDefaultMute(pUser);
+	Chat_Mute(pUser->hContact, muteFor ? CHATMODE_MUTE : (bNever ? CHATMODE_UNMUTE : CHATMODE_NORMAL));
 
 	memcpy(&pUser->notificationSettings, pSettings.get(), sizeof(pUser->notificationSettings));
 }
 
 void CTelegramProto::ProcessChatPosition(TD::updateChatPosition *pObj)
 {
-	if (pObj->position_->get_id() != TD::chatPosition::ID) {
-		debugLogA("Unsupport position");
-		return;
-	}
-
 	auto *pUser = FindChat(pObj->chat_id_);
 	if (pUser == nullptr) {
 		debugLogA("Unknown chat, skipping");
@@ -706,7 +732,7 @@ void CTelegramProto::ProcessChatPosition(TD::updateChatPosition *pObj)
 		wchar_t *pwszDefaultGroup = m_wszDefaultGroup;
 		if (!pwszExistingGroup || pUser->isForum
 			|| !mir_wstrncmp(pwszExistingGroup, pwszDefaultGroup, mir_wstrlen(pwszDefaultGroup))
-			|| (pUser->isGroupChat && !mir_wstrcmp(pwszExistingGroup, ptrW(Chat_GetGroup()))))
+			|| (pUser->isGroupChat && !mir_wstrcmp(pwszExistingGroup, Chat_GetGroup())))
 		{
 			CMStringW wszNewGroup(pwszDefaultGroup);
 			if (!wszGroup.IsEmpty())
@@ -843,26 +869,21 @@ void CTelegramProto::ProcessMarkRead(TD::updateChatReadInbox *pObj)
 	if (pObj->last_read_inbox_message_id_)
 		pUser->bInited = true;
 
-	MEVENT hLastRead = db_event_getById(m_szModuleName, msg2id(pObj->chat_id_, pObj->last_read_inbox_message_id_));
-	if (hLastRead == 0) {
+	CMStringA szMaxId(msg2id(pObj->chat_id_, pObj->last_read_inbox_message_id_));
+	if (db_event_getById(m_szModuleName, szMaxId) == 0) {
 		debugLogA("unknown event, ignored");
 		return;
 	}
 
-	bool bExit = false;
-	for (MEVENT hEvent = db_event_firstUnread(pUser->hContact); hEvent; hEvent = db_event_next(pUser->hContact, hEvent)) {
-		if (bExit)
-			break;
+	// make sure that all events with ids lower or equal than szMaxId are marked read
+	MarkRead(pUser->hContact, szMaxId, false);
 
-		bExit = (hEvent == hLastRead);
+	if (g_plugin.hasMessageState && pObj->unread_count_ == 0)
+		CallService(MS_MESSAGESTATE_UPDATE, GetRealContact(pUser), MRD_TYPE_READ);
 
-		DBEVENTINFO dbei = {};
-		if (db_event_get(hEvent, &dbei))
-			continue;
-
-		if (!dbei.markedRead())
-			db_event_markRead(pUser->hContact, hEvent, true);
-	}
+	if (Contact::IsGroupChat(pUser->hContact) && pObj->unread_count_ == 0)
+		if (pUser->m_si)
+			pUser->m_si->markRead(true);
 }
 
 void CTelegramProto::ProcessMessage(const TD::message *pMessage)
@@ -906,28 +927,39 @@ void CTelegramProto::ProcessMessage(const TD::message *pMessage)
 			hContact = si->hContact;
 	}
 
-	DB::EventInfo dbei(hOldEvent);
-	dbei.szId = szMsgId;
-	dbei.cbBlob = szText.GetLength();
-	dbei.timestamp = pMessage->date_;
-	if (pMessage->is_outgoing_)
-		dbei.flags |= DBEF_SENT;
-	if (!pUser->bInited)
-		dbei.flags |= DBEF_READ;
-	if (GetGcUserId(pUser, pMessage, szUserId))
-		dbei.szUserId = szUserId;
-	if (pMessage->reply_to_message_id_) {
-		szReplyId = msg2id(pMessage->chat_id_, pMessage->reply_to_message_id_);
-		dbei.szReplyId = szReplyId;
-	}
-
-	if (dbei) {
-		replaceStr(dbei.pBlob, szText.Detach());
-		db_event_edit(hOldEvent, &dbei, true);
+	if (m_bResidentChannels && pUser->isChannel && pUser->m_si) {
+		GCEVENT gce = { pUser->m_si, GC_EVENT_MESSAGE };
+		gce.dwFlags = GCEF_ADDTOLOG | GCEF_UTF8;
+		gce.pszText.a = szText;
+		gce.pszNick.a = szUserId;
+		gce.pszUID.a = szUserId;
+		gce.time = pMessage->date_;
+		Chat_Event(&gce);
 	}
 	else {
-		dbei.pBlob = szText.GetBuffer();
-		ProtoChainRecvMsg(hContact, dbei);
+		DB::EventInfo dbei(hOldEvent);
+		dbei.szId = szMsgId;
+		dbei.cbBlob = szText.GetLength();
+		dbei.timestamp = pMessage->date_;
+		if (pMessage->is_outgoing_)
+			dbei.flags |= DBEF_SENT;
+		if (!pUser->bInited)
+			dbei.flags |= DBEF_READ;
+		if (GetGcUserId(pUser, pMessage, szUserId))
+			dbei.szUserId = szUserId;
+		if (auto iReplyId = getReplyId(pMessage->reply_to_.get())) {
+			szReplyId = msg2id(pMessage->chat_id_, iReplyId);
+			dbei.szReplyId = szReplyId;
+		}
+
+		if (dbei) {
+			replaceStr(dbei.pBlob, szText.Detach());
+			db_event_edit(hOldEvent, &dbei, true);
+		}
+		else {
+			dbei.pBlob = szText.GetBuffer();
+			ProtoChainRecvMsg(hContact, dbei);
+		}
 	}
 }
 
@@ -986,15 +1018,16 @@ void CTelegramProto::ProcessMessageReactions(TD::updateMessageInteractionInfo *p
 	}
 
 	JSONNode reactions; reactions.set_name("r");
-	if (pObj->interaction_info_) {
-		for (auto &it : pObj->interaction_info_->reactions_) {
-			if (it->type_->get_id() != TD::reactionTypeEmoji::ID)
-				continue;
+	if (pObj->interaction_info_)
+		if (pObj->interaction_info_->reactions_) {
+			for (auto &it : pObj->interaction_info_->reactions_->reactions_) {
+				if (it->type_->get_id() != TD::reactionTypeEmoji::ID)
+					continue;
 
-			auto *pEmoji = (TD::reactionTypeEmoji *)it->type_.get();
-			reactions << INT_PARAM(pEmoji->emoji_.c_str(), it->total_count_);
+				auto *pEmoji = (TD::reactionTypeEmoji *)it->type_.get();
+				reactions << INT_PARAM(pEmoji->emoji_.c_str(), it->total_count_);
+			}
 		}
-	}
 
 	auto &json = dbei.setJson();
 	auto it = json.find("r");
@@ -1053,6 +1086,47 @@ void CTelegramProto::ProcessOption(TD::updateOption *pObj)
 			m_botIds.push_back(iValue);
 			return;
 		}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+void CTelegramProto::ProcessRemoteMarkRead(TD::updateChatReadOutbox *pObj)
+{
+	auto *pUser = FindChat(pObj->chat_id_);
+	if (pUser == nullptr) {
+		debugLogA("message from unknown chat/user, ignored");
+		return;
+	}
+
+	CMStringA szMaxId(msg2id(pUser->chatId, pObj->last_read_outbox_message_id_));
+	MarkRead(pUser->hContact, szMaxId, true);
+
+	auto hContact = GetRealContact(pUser);
+	if (g_plugin.hasMessageState)
+		CallService(MS_MESSAGESTATE_UPDATE, hContact, MRD_TYPE_READ);
+
+	if (auto hEvent = db_event_getById(m_szModuleName, szMaxId)) {
+		setDword(hContact, DBKEY_REMOTE_READ, hEvent);
+		if (g_plugin.hasNewStory)
+			NS_NotifyRemoteRead(hContact, hEvent);
+	}
+}
+
+void CTelegramProto::ProcessScopeNotification(TD::updateScopeNotificationSettings *pObj)
+{
+	switch (pObj->scope_->get_id()) {
+	case TD::notificationSettingsScopePrivateChats::ID:
+		m_iDefaultMutePrivate = pObj->notification_settings_->mute_for_;
+		break;
+
+	case TD::notificationSettingsScopeGroupChats::ID:
+		m_iDefaultMuteGroup = pObj->notification_settings_->mute_for_;
+		break;
+
+	case TD::notificationSettingsScopeChannelChats::ID:
+		m_iDefaultMuteChannel = pObj->notification_settings_->mute_for_;
+		break;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -1165,6 +1239,8 @@ void CTelegramProto::ProcessUser(TD::updateUser *pObj)
 
 	if (pUser->usernames_)
 		UpdateString(pu->hContact, "Nick", pUser->usernames_->editable_username_);
+	else
+		delSetting(pu->hContact, "Nick");
 
 	Contact::PutOnList(pu->hContact);
 

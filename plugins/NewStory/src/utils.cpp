@@ -18,6 +18,55 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #include "stdafx.h"
 
+#include <msapi/comptr.h>
+
+Bitmap* LoadImageFromResource(HINSTANCE hInst, int resourceId, const wchar_t *pwszType)
+{
+	if (HRSRC hrsrc = FindResourceW(hInst, MAKEINTRESOURCE(resourceId), pwszType)) {
+		if (DWORD dwSize = SizeofResource(hInst, hrsrc)) {
+			if (HGLOBAL hRes = LoadResource(hInst, hrsrc)) {
+				void *pImage = LockResource(hRes);
+
+				if (HGLOBAL hGlobal = ::GlobalAlloc(GHND, dwSize)) {
+					void *pBuffer = ::GlobalLock(hGlobal);
+					if (pBuffer) {
+						memcpy(pBuffer, pImage, dwSize);
+
+						CComPtr<IStream> pStream;
+						HRESULT hr = CreateStreamOnHGlobal(hGlobal, TRUE, &pStream);
+						if (SUCCEEDED(hr))
+							return new Gdiplus::Bitmap(pStream);
+					}
+
+					GlobalFree(hGlobal); // free memory only if the function fails
+				}
+			}
+		}
+	}
+
+	return nullptr;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+int SmartSendEvent(int iEventType, MCONTACT hContact, LPARAM hEvent)
+{
+	if (HWND hwnd = WindowList_Find(g_hNewstoryLogs, hContact))
+		SendMessage(hwnd, iEventType, hContact, hEvent);
+
+	if (db_mc_isMeta(hContact)) {
+		// Send a message to a real contact too
+		MCONTACT cc = db_event_getContact(hEvent);
+		if (cc != hContact)
+			if (HWND hwnd = WindowList_Find(g_hNewstoryLogs, cc))
+				SendMessage(hwnd, iEventType, cc, hEvent);
+	}
+
+	return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
 uint32_t toggleBit(uint32_t dw, uint32_t bit)
 {
 	if (dw & bit)

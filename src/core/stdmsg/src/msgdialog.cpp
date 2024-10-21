@@ -36,41 +36,26 @@ LIST<CMsgDialog> g_arDialogs(10, PtrKeySortT);
 /////////////////////////////////////////////////////////////////////////////////////////
 
 CMsgDialog::CMsgDialog(CTabbedWindow *pOwner, MCONTACT hContact) :
-	CSuper(g_plugin, IDD_MSG),
+	CSuper(g_plugin, IDD_MSG, hContact),
 	m_avatar(this, IDC_AVATAR),
 	m_splitterX(this, IDC_SPLITTERX),
 	m_splitterY(this, IDC_SPLITTERY),
 	m_cmdList(20),
 	m_pOwner(pOwner)
 {
-	m_hContact = hContact;
-	Init();
-}
+	if (isChat()) {
+		m_iSplitterX = g_Settings.iSplitterX;
+		m_splitterX.OnChange = Callback(this, &CMsgDialog::onSplitterX);
 
-CMsgDialog::CMsgDialog(CTabbedWindow *pOwner, SESSION_INFO *si) :
-	CSuper(g_plugin, IDD_MSG, si),
-	m_avatar(this, IDC_AVATAR),
-	m_splitterX(this, IDC_SPLITTERX),
-	m_splitterY(this, IDC_SPLITTERY),
-	m_cmdList(20),
-	m_pOwner(pOwner)
-{
-	m_iSplitterX = g_Settings.iSplitterX;
+		m_btnFilter.OnClick = Callback(this, &CMsgDialog::onClick_Filter);
+		m_btnNickList.OnClick = Callback(this, &CMsgDialog::onClick_NickList);
+	}
 
-	m_btnFilter.OnClick = Callback(this, &CMsgDialog::onClick_Filter);
-	m_btnNickList.OnClick = Callback(this, &CMsgDialog::onClick_NickList);
-
-	m_splitterX.OnChange = Callback(this, &CMsgDialog::onSplitterX);
-
-	Init();
-}
-
-void CMsgDialog::Init()
-{
 	m_szTabSave[0] = 0;
 	m_autoClose = 0;
 	m_forceResizable = true;
 	m_bNoActivate = g_plugin.bDoNotStealFocus;
+	m_bSendFormat = g_plugin.bSendFormat;
 
 	g_arDialogs.insert(this);
 
@@ -268,11 +253,7 @@ void CMsgDialog::OnActivate()
 
 	if (isChat()) {
 		UpdateStatusBar();
-
-		if (db_get_w(m_hContact, m_si->pszModule, "ApparentMode", 0) != 0)
-			db_set_w(m_hContact, m_si->pszModule, "ApparentMode", 0);
-		if (Clist_GetEvent(m_hContact, 0))
-			Clist_RemoveEvent(m_hContact, GC_FAKE_EVENT);
+		m_si->markRead(true);
 	}
 	else {
 		SetupStatusBar();
@@ -313,19 +294,21 @@ void CMsgDialog::onClick_Ok(CCtrlButton *pButton)
 	if (!pButton->Enabled())
 		return;
 
-	ptrA msgText(m_message.GetRichTextRtf(true));
-	if (msgText == nullptr)
+	ptrA streamOut(m_message.GetRichTextRtf(!m_bSendFormat));
+	if (streamOut == nullptr)
 		return;
 
+	CMStringW wszText(ptrW(mir_utf8decodeW(streamOut)));
+	if (wszText.IsEmpty())
+		return;
+
+	if (m_bSendFormat)
+		DoRtfToTags(wszText);
+	wszText.TrimRight();
+
 	if (isChat()) {
-		CMStringW ptszText(ptrW(mir_utf8decodeW(msgText)));
-		g_chatApi.DoRtfToTags(ptszText, 0, nullptr);
-		ptszText.Trim();
-
-		m_cmdList.insert(mir_wstrdup(ptszText));
+		m_cmdList.insert(mir_wstrdup(wszText));
 		m_cmdListInd = -1;
-
-		ptszText.Replace(L"%", L"%%");
 
 		if (m_si->pMI->bAckMsg) {
 			m_message.Disable();
@@ -333,16 +316,12 @@ void CMsgDialog::onClick_Ok(CCtrlButton *pButton)
 		}
 		else m_message.SetText(L"");
 
-		Chat_DoEventHook(m_si, GC_USER_MESSAGE, nullptr, ptszText, 0);
+		Chat_DoEventHook(m_si, GC_USER_MESSAGE, nullptr, wszText, 0);
 	}
 	else {
-		ptrW temp(mir_utf8decodeW(msgText));
-		if (!temp[0])
-			return;
-
-		int sendId = SendMessageDirect(m_hContact, m_hQuoteEvent, rtrimw(temp));
+		int sendId = SendMessageDirect(m_hContact, m_hQuoteEvent, wszText);
 		if (sendId) {
-			m_cmdList.insert(temp.detach());
+			m_cmdList.insert(wszText.Detach());
 			m_cmdListInd = -1;
 
 			if (m_nTypeMode == PROTOTYPE_SELFTYPING_ON)
@@ -682,18 +661,6 @@ INT_PTR CMsgDialog::DlgProc(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		case IDC_SRMM_LOG:
 			if (HIWORD(wParam) == EN_VSCROLL && m_pLog->AtBottom())
 				StopFlash();
-			break;
-		}
-		break;
-
-	case WM_NOTIFY:
-		switch (((LPNMHDR)lParam)->idFrom) {
-		case IDC_SRMM_LOG:
-		case IDC_SRMM_MESSAGE:
-			if (((LPNMHDR)lParam)->code == EN_MSGFILTER && ((MSGFILTER *)lParam)->msg == WM_RBUTTONUP) {
-				SetWindowLongPtr(m_hwnd, DWLP_MSGRESULT, TRUE);
-				return TRUE;
-			}
 			break;
 		}
 		break;
@@ -1322,6 +1289,12 @@ bool CMsgDialog::GetFirstEvent()
 	return true;
 }
 
+void CMsgDialog::GetInputFont(LOGFONTW &lf, COLORREF &bg, COLORREF &fg) const
+{
+	bg = g_plugin.getDword(SRMSGSET_BKGCOLOUR, SRMSGDEFSET_BKGCOLOUR);
+	LoadMsgDlgFont(MSGFONTID_MESSAGEAREA, &lf, &fg);
+}
+
 void CMsgDialog::NotifyTyping(int mode)
 {
 	if (!m_hContact)
@@ -1358,11 +1331,6 @@ void CMsgDialog::NotifyTyping(int mode)
 		m_nTypeMode = mode;
 		CallService(MS_PROTO_SELFISTYPING, m_hContact, m_nTypeMode);
 	}
-}
-
-void CMsgDialog::RemakeLog()
-{
-	m_pLog->LogEvents(m_hDbEventFirst, -1, false);
 }
 
 void CMsgDialog::ShowTime(bool bForce)

@@ -5,6 +5,7 @@
 #define DBKEY_OWNER  "OwnerId"
 #define DBKEY_THREAD "ThreadId"
 #define DBKEY_AUTHORIZED "Authorized"
+#define DBKEY_REMOTE_READ "RemoteRead"
 
 #define DBKEY_AVATAR_HASH "AvatarHash"
 #define DBKEY_AVATAR_TYPE "AvatarType"
@@ -81,7 +82,7 @@ struct TG_FILE_REQUEST : public MZeroedObject
 	CMStringA m_uniqueId, m_szUserId;
 	CMStringW m_destPath, m_fileName, m_wszDescr;
 	OFDTHREAD *ofd = 0;
-	bool m_bRecv = false;
+	bool m_bRecv = false, m_isSmiley = false;
 };
 
 struct TG_USER : public MZeroedObject
@@ -101,7 +102,7 @@ struct TG_USER : public MZeroedObject
 	int64_t   id, chatId = -1;
 	MCONTACT  hContact;
 	int       folderId = -1, nHistoryChunks;
-	bool      isGroupChat, isBot, isForum, bLoadMembers, bStartChat, bInited;
+	bool      isGroupChat, isChannel, isBot, isForum, bLoadMembers, bStartChat, bInited;
 	CMStringA szAvatarHash;
 	CMStringW wszNick, wszFirstName, wszLastName;
 	time_t    m_timer1 = 0, m_timer2 = 0;
@@ -208,6 +209,7 @@ class CTelegramProto : public PROTO<CTelegramProto>
 
 	bool m_bAuthorized, m_bTerminated, m_bUnregister = false, m_bSmileyAdd = false;
 	int32_t m_iClientId, m_iQueryId;
+	TD::int32 m_iDefaultMutePrivate, m_iDefaultMuteGroup, m_iDefaultMuteChannel;
 	CMStringA m_defaultEmoji;
 
 	OBJLIST<TG_OWN_MESSAGE> m_arOwnMsg;
@@ -275,8 +277,11 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	void ProcessMessageContent(TD::updateMessageContent *pObj);
 	void ProcessMessageReactions(TD::updateMessageInteractionInfo *pObj);
 	void ProcessOption(TD::updateOption *pObj);
+	void ProcessRemoteMarkRead(TD::updateChatReadOutbox *pObj);
+	void ProcessScopeNotification(TD::updateScopeNotificationSettings *pObj);
 	void ProcessStatus(TD::updateUserStatus *pObj);
 	void ProcessSuperGroup(TD::updateSupergroup *pObj);
+	void ProcessSuperGroupInfo(TD::updateSupergroupFullInfo *pObj);
 	void ProcessUser(TD::updateUser *pObj);
 
 	void UnregisterSession();
@@ -295,7 +300,8 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	};
 	
 	bool GetMessageFile(const EmbeddedFile &embed, TG_FILE_REQUEST::Type, const TD::file *pFile, const char *pszFileName, const char *pszCaption);
-
+	
+	CMStringA GetFormattedText(TD::object_ptr<TD::formattedText> &pText);
 	CMStringA GetMessagePreview(const TD::file *pFile);
 	CMStringA GetMessageSticker(const TD::file *pFile, const char *pwszExtension);
 	CMStringA GetMessageText(TG_USER *pUser, const TD::message *pMsg, bool bSkipJoin = false, bool bRead = false);
@@ -325,7 +331,7 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	bool GetGcUserId(TG_USER *pUser, const TD::message *pMsg, char *dest);
 	void GcAddMembers(TG_USER *pChat, const TD::array<TD::object_ptr<TD::chatMember>> &pMembers, bool bSilent);
 	void GcChangeMember(TG_USER *pChat, const char *adminId, TD::int53 userId, bool bJoined);
-	void GcChangeTopic(TG_USER *pChat, const wchar_t *pwszNewTopic);
+	void GcChangeTopic(TG_USER *pChat, const std::string &szNewTopic);
 	void GcRun(TG_USER *pChat);
 
 	// Search
@@ -353,8 +359,11 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	int64_t  GetId(MCONTACT, const char *pszSetting = DBKEY_ID);
 	void     SetId(MCONTACT, int64_t id, const char *pszSetting = DBKEY_ID);
 
+	int      GetDefaultMute(const TG_USER *pUser);
+
 	MCONTACT GetRealContact(const TG_USER *pUser);
 	void     RemoveFromClist(TG_USER *pUser);
+	void     MarkRead(MCONTACT hContact, const CMStringA &szMaxId, bool bSent);
 
 	// Menus
 	HGENMENU hmiForward, hmiReaction;
@@ -403,7 +412,7 @@ public:
 	void     OnEventEdited(MCONTACT, MEVENT, const DBEVENTINFO &dbei) override;
 	void     OnMarkRead(MCONTACT, MEVENT) override;
 	void     OnModulesLoaded() override;
-	void     OnReceiveOfflineFile(DB::FILE_BLOB &blob) override;
+	void     OnReceiveOfflineFile(DB::EventInfo &dbei, DB::FILE_BLOB &blob) override;
 	void     OnSendOfflineFile(DB::EventInfo &dbei, DB::FILE_BLOB &blob, void *hTransfer) override;
 	void     OnShutdown() override;
 
@@ -427,16 +436,18 @@ public:
 
 	// Options ///////////////////////////////////////////////////////////////////////////
 	
-	CMOption<uint32_t> m_iCountry;		   // set this status to m_iStatus1 after this interval of secs
-	CMOption<wchar_t*> m_szOwnPhone;       // our own phone number
-	CMOption<wchar_t*> m_wszDefaultGroup;  // clist group to store contacts
-	CMOption<wchar_t*> m_wszDeviceName;    // how do you see this session in Device List
-	CMOption<bool>     m_bHideGroupchats;  // do not open chat windows on creation
+	CMOption<uint32_t> m_iCountry;		    // set this status to m_iStatus1 after this interval of secs
+	CMOption<wchar_t*> m_szOwnPhone;        // our own phone number
+	CMOption<wchar_t*> m_wszDefaultGroup;   // clist group to store contacts
+	CMOption<wchar_t*> m_wszDeviceName;     // how do you see this session in Device List
+	CMOption<bool>     m_bHideGroupchats;   // do not open chat windows on creation
 	CMOption<bool>     m_bUsePopups;
-	CMOption<bool>     m_bCompressFiles;   // embed pictures & videos into a message on send
-	CMOption<uint32_t> m_iTimeDiff1;		   // set this status to m_iStatus1 after this interval of secs
+	CMOption<bool>     m_bIncludePreviews;  // include URL previews into message text
+	CMOption<bool>     m_bResidentChannels; // don't store channel messages in a database
+	CMOption<bool>     m_bCompressFiles;    // embed pictures & videos into a message on send
+	CMOption<uint32_t> m_iTimeDiff1;		    // set this status to m_iStatus1 after this interval of secs
 	CMOption<uint32_t> m_iStatus1;
-	CMOption<uint32_t> m_iTimeDiff2;		   // set this status to m_iStatus2 after this interval of secs
+	CMOption<uint32_t> m_iTimeDiff2;        // set this status to m_iStatus2 after this interval of secs
 	CMOption<uint32_t> m_iStatus2;
 
 	// Processing Threads ////////////////////////////////////////////////////////////////

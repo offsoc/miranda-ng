@@ -56,7 +56,9 @@ CTelegramProto::CTelegramProto(const char* protoName, const wchar_t* userName) :
 	m_wszDefaultGroup(this, "DefaultGroup", L"Telegram"),
 	m_bUsePopups(this, "UsePopups", true),
 	m_bCompressFiles(this, "CompressFiles", true),
-	m_bHideGroupchats(this, "HideChats", true)
+	m_bHideGroupchats(this, "HideChats", true),
+	m_bIncludePreviews(this, "IncludePreview", true),
+	m_bResidentChannels(this, "ResidentChannels", false)
 {
 	m_iOwnId = GetId(0);
 
@@ -144,8 +146,9 @@ bool CTelegramProto::OnContactDeleted(MCONTACT hContact, uint32_t flags)
 	if (id == 0)
 		return false;
 
+	bool bDelContact = (flags & CDF_DEL_CONTACT) != 0;
 	if (auto *pUser = FindUser(id)) {
-		if (pUser->m_si) {
+		if (pUser->m_si && bDelContact) {
 			SvcLeaveChat(hContact, 0);
 			return false;
 		}
@@ -156,7 +159,7 @@ bool CTelegramProto::OnContactDeleted(MCONTACT hContact, uint32_t flags)
 		pUser->wszLastName = getMStringW(hContact, "LastName");
 	}
 
-	if (flags & CDF_DEL_CONTACT) {
+	if (bDelContact) {
 		TD::array<TD::int53> ids;
 		ids.push_back(id);
 		SendQuery(new TD::removeContacts(std::move(ids)));
@@ -182,13 +185,18 @@ void CTelegramProto::OnShutdown()
 
 int CTelegramProto::OnWindowEvent(WPARAM wParam, LPARAM lParam)
 {
-	if (wParam == MSG_WINDOW_EVT_OPENING) {
-		auto *pDlg = (CMsgDialog *)lParam;
-		if (Proto_IsProtoOnContact(pDlg->m_hContact, m_szModuleName))
-			if (auto *pUser = FindUser(GetId(pDlg->m_hContact)))
-				if (pUser->chatId == -1 && !pDlg->isChat())
-					SendQuery(new TD::createPrivateChat(pUser->id, true));
-	}
+	auto *pDlg = (CMsgDialog *)lParam;
+	if (!Proto_IsProtoOnContact(pDlg->m_hContact, m_szModuleName))
+		return 0;
+
+	auto *pUser = FindUser(GetId(pDlg->m_hContact));
+	if (pUser == nullptr)
+		return 0;
+
+	if (wParam == MSG_WINDOW_EVT_OPENING)
+		if (pUser->chatId == -1 && !pDlg->isChat())
+			SendQuery(new TD::createPrivateChat(pUser->id, true));
+
 	return 0;
 }
 
@@ -252,8 +260,8 @@ void CTelegramProto::OnEventEdited(MCONTACT hContact, MEVENT, const DBEVENTINFO 
 
 	if (dbei.szId && dbei.cbBlob && dbei.pBlob && dbei.eventType == EVENTTYPE_MESSAGE) {
 		auto text = formatBbcodes((char*)dbei.pBlob);
-		auto content = TD::make_object<TD::inputMessageText>(std::move(text), false, false);
-		SendQuery(new TD::editMessageText(pUser->chatId, dbei2id(dbei), 0, std::move(content)));
+		// auto content = TD::make_object<TD::inputMessageText>(std::move(text), 0, false);
+		// SendQuery(new TD::editMessageText(pUser->chatId, dbei2id(dbei), 0, std::move(content)));
 	}
 }
 
@@ -334,8 +342,10 @@ int CTelegramProto::AuthRequest(MCONTACT hContact, const wchar_t *)
 	return 0;
 }
 
-INT_PTR CTelegramProto::GetCaps(int type, MCONTACT)
+INT_PTR CTelegramProto::GetCaps(int type, MCONTACT hContact)
 {
+	uint32_t ret;
+
 	switch (type) {
 	case PFLAGNUM_1:
 		return PF1_IM | PF1_FILE | PF1_CHAT | PF1_SEARCHBYNAME | PF1_ADDSEARCHRES | PF1_MODEMSGRECV | PF1_SERVERCLIST;
@@ -344,9 +354,12 @@ INT_PTR CTelegramProto::GetCaps(int type, MCONTACT)
 		return PF2_ONLINE | PF2_SHORTAWAY | PF2_LONGAWAY;
 
 	case PFLAGNUM_4:
-		return PF4_NOCUSTOMAUTH | PF4_FORCEAUTH | PF4_OFFLINEFILES | PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_AVATARS 
-			| PF4_SERVERMSGID | PF4_DELETEFORALL | PF4_REPLY | PF4_GROUPCHATFILES;
-
+		ret = PF4_NOCUSTOMAUTH | PF4_FORCEAUTH | PF4_OFFLINEFILES | PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_AVATARS 
+			| PF4_SERVERMSGID | PF4_REPLY | PF4_GROUPCHATFILES | PF4_IMSENDOFFLINE | PF4_SERVERFORMATTING;
+		if (GetId(hContact) != m_iOwnId)
+			ret |= PF4_DELETEFORALL;
+		return ret;
+		
 	case PFLAGNUM_5:
 		return PF2_SHORTAWAY | PF2_LONGAWAY;
 
@@ -676,7 +689,7 @@ int CTelegramProto::UserIsTyping(MCONTACT hContact, int type)
 {
 	if (auto *pUser = FindUser(GetId(hContact)))
 		if (type == PROTOTYPE_SELFTYPING_ON)
-			SendQuery(new TD::sendChatAction(pUser->chatId, 0, TD::make_object<TD::chatActionTyping>()));
+			SendQuery(new TD::sendChatAction(pUser->chatId, 0, "", TD::make_object<TD::chatActionTyping>()));
 
 	return 0;
 }

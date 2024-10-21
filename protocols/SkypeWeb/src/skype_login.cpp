@@ -246,8 +246,8 @@ void CSkypeProto::SendPresence()
 {
 	ptrA epname;
 
-	if (!bUseHostnameAsPlace && wstrPlace && *wstrPlace)
-		epname = mir_utf8encodeW(wstrPlace);
+	if (!m_bUseHostnameAsPlace && m_wstrPlace && *m_wstrPlace)
+		epname = mir_utf8encodeW(m_wstrPlace);
 	else {
 		wchar_t compName[MAX_COMPUTERNAME_LENGTH + 1];
 		DWORD size = _countof(compName);
@@ -277,8 +277,8 @@ void CSkypeProto::OnCapabilitiesSended(MHttpResponse *response, AsyncHttpRequest
 	FreeList(skypenames);
 	skypenames.destroy();
 
+	ReceiveAvatar(0);
 	PushRequest(new GetContactListRequest());
-	PushRequest(new GetAvatarRequest(ptrA(getStringA("AvatarUrl")), 0));
 	PushRequest(new SyncConversations());
 
 	JSONNode root = JSONNode::parse(response->body);

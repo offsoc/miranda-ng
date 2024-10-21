@@ -26,6 +26,8 @@ CMOption<bool> Chat::bShowNicklist(CHAT_MODULE, "ShowNicklist", true);
 CMOption<bool> Chat::bFilterEnabled(CHAT_MODULE, "FilterEnabled", false);
 CMOption<bool> Chat::bTopicOnClist(CHAT_MODULE, "TopicOnClist", false);
 CMOption<bool> Chat::bPopupOnJoin(CHAT_MODULE, "PopupOnJoin", false);
+CMOption<bool> Chat::bUseGroup(CHAT_MODULE, "UseGroup", true);
+
 CMOption<bool> Chat::bDoubleClick4Privat(CHAT_MODULE, "DoubleClick4Privat", false);
 CMOption<bool> Chat::bShowContactStatus(CHAT_MODULE, "ShowContactStatus", true);
 CMOption<bool> Chat::bContactStatusFirst(CHAT_MODULE, "ContactStatusFirst", false);
@@ -178,18 +180,13 @@ MIR_APP_DLL(int) Chat_Register(const GCREGISTER *gcr)
 		return GC_ERROR;
 
 	mi->ptszModDispName = mir_wstrdup(gcr->ptszDispName);
-	mi->bBold = (gcr->dwFlags & GC_BOLD) != 0;
-	mi->bUnderline = (gcr->dwFlags & GC_UNDERLINE) != 0;
-	mi->bItalics = (gcr->dwFlags & GC_ITALICS) != 0;
-	mi->bColor = (gcr->dwFlags & GC_COLOR) != 0;
-	mi->bBkgColor = (gcr->dwFlags & GC_BKGCOLOR) != 0;
 	mi->bAckMsg = (gcr->dwFlags & GC_ACKMSG) != 0;
 	mi->bChanMgr = (gcr->dwFlags & GC_CHANMGR) != 0;
 	mi->bDatabase = (gcr->dwFlags & GC_DATABASE) != 0;
 	mi->bPersistent = (gcr->dwFlags & GC_PERSISTENT) != 0;
 	mi->iMaxText = gcr->iMaxText;
 
-	g_chatApi.SetAllOffline(TRUE, gcr->pszModule);
+	SetAllOffline(gcr->pszModule);
 	return 0;
 }
 
@@ -227,7 +224,7 @@ MIR_APP_DLL(SESSION_INFO*) Chat_NewSession(
 	}
 
 	// create a new session
-	si = g_chatApi.SM_CreateSession();
+	si = new SESSION_INFO();
 	si->ptszID = mir_wstrdup(ptszID);
 	si->pszModule = mir_strdup(pszModule);
 	si->pMI = mi;
@@ -465,27 +462,24 @@ static BOOL HandleChatEvent(GCEVENT &gce, int bManyFix)
 		return SM_SetContactStatus(si, gce.pszUID.w, (uint16_t)gce.dwItemData);
 
 	case GC_EVENT_TOPIC:
-		{
-			wchar_t *pwszNew = RemoveFormatting(gce.pszText.w);
-			if (!mir_wstrcmp(si->ptszTopic, pwszNew)) // nothing changed? exiting
-				return 0;
+		if (!mir_wstrcmp(si->ptszTopic, gce.pszText.w)) // nothing changed? exiting
+			return 0;
 
-			si->bIsDirty = true;
-			replaceStrW(si->ptszTopic, pwszNew);
-			if (pwszNew != nullptr)
-				db_set_ws(si->hContact, si->pszModule, "Topic", si->ptszTopic);
+		si->bIsDirty = true;
+		replaceStrW(si->ptszTopic, gce.pszText.w);
+		if (gce.pszText.w != nullptr)
+			db_set_ws(si->hContact, si->pszModule, "Topic", si->ptszTopic);
+		else
+			db_unset(si->hContact, si->pszModule, "Topic");
+
+		if (g_chatApi.OnSetTopic)
+			g_chatApi.OnSetTopic(si);
+
+		if (Chat::bTopicOnClist) {
+			if (gce.pszText.w != nullptr)
+				db_set_ws(si->hContact, "CList", "StatusMsg", si->ptszTopic);
 			else
-				db_unset(si->hContact, si->pszModule, "Topic");
-
-			if (g_chatApi.OnSetTopic)
-				g_chatApi.OnSetTopic(si);
-
-			if (Chat::bTopicOnClist) {
-				if (pwszNew != nullptr)
-					db_set_ws(si->hContact, "CList", "StatusMsg", si->ptszTopic);
-				else
-					db_unset(si->hContact, "CList", "StatusMsg");
-			}
+				db_unset(si->hContact, "CList", "StatusMsg");
 		}
 		break;
 
@@ -873,6 +867,7 @@ static int OnEventDeleted(WPARAM hContact, LPARAM hDbEvent)
 					break;
 				}
 
+	Clist_RemoveEvent(hContact, hDbEvent);
 	return 0;
 }
 
@@ -991,7 +986,7 @@ static int ModulesLoaded(WPARAM, LPARAM)
 	hMute2MenuItem = Menu_AddContactMenuItem(&mi);
 	Menu_ConfigureItem(hMute2MenuItem, MCI_OPT_EXECPARAM, INT_PTR(CHATMODE_UNMUTE));
 
-	g_chatApi.SetAllOffline(TRUE, nullptr);
+	SetAllOffline(nullptr);
 	return 0;
 }
 

@@ -62,7 +62,7 @@ static INT_PTR CALLBACK ConfirmSendAllDlgProc(HWND hwndDlg, UINT msg, WPARAM wPa
 /////////////////////////////////////////////////////////////////////////////////////////
 
 CMsgDialog::CMsgDialog(MCONTACT hContact, bool bIncoming) :
-	CSuper(g_plugin, IDD_MSG),
+	CSuper(g_plugin, IDD_MSG, hContact),
 	m_bIncoming(bIncoming),
 	m_splitterX(this, IDC_SPLITTERX),
 	m_splitterY(this, IDC_SPLITTERY),
@@ -72,42 +72,27 @@ CMsgDialog::CMsgDialog(MCONTACT hContact, bool bIncoming) :
 	m_btnDetails(this, IDC_DETAILS),
 	m_btnUserMenu(this, IDC_USERMENU)
 {
-	m_hContact = hContact;
-
-	m_btnAdd.OnClick = Callback(this, &CMsgDialog::onClick_Add);
 	m_btnQuote.OnClick = Callback(this, &CMsgDialog::onClick_Quote);
-	m_btnDetails.OnClick = Callback(this, &CMsgDialog::onClick_Details);
-	m_btnUserMenu.OnClick = Callback(this, &CMsgDialog::onClick_UserMenu);
-	
-	Init();
-}
 
-CMsgDialog::CMsgDialog(SESSION_INFO *si) :
-	CSuper(g_plugin, IDD_MSG, si),
-	m_splitterX(this, IDC_SPLITTERX),
-	m_splitterY(this, IDC_SPLITTERY),
+	if (isChat()) {
+		m_btnFilter.OnClick = Callback(this, &CMsgDialog::onClick_Filter);
+		m_btnNickList.OnClick = Callback(this, &CMsgDialog::onClick_ShowList);
 
-	m_btnAdd(this, IDC_ADD),
-	m_btnQuote(this, IDC_QUOTE),
-	m_btnDetails(this, IDC_DETAILS),
-	m_btnUserMenu(this, IDC_USERMENU)
-{
-	m_btnFilter.OnClick = Callback(this, &CMsgDialog::onClick_Filter);
-	m_btnNickList.OnClick = Callback(this, &CMsgDialog::onClick_ShowList);
+		m_splitterX.OnChange = Callback(this, &CMsgDialog::onChange_SplitterX);
+	}
+	else {
+		m_btnAdd.OnClick = Callback(this, &CMsgDialog::onClick_Add);
+		m_btnDetails.OnClick = Callback(this, &CMsgDialog::onClick_Details);
+		m_btnUserMenu.OnClick = Callback(this, &CMsgDialog::onClick_UserMenu);
+	}
 
-	m_splitterX.OnChange = Callback(this, &CMsgDialog::onChange_SplitterX);
-
-	Init();
-}
-
-void CMsgDialog::Init()
-{
 	m_autoClose = CLOSE_ON_CANCEL;
 	m_szProto = Proto_GetBaseAccountName(m_hContact);
 
 	SetParent(GetParentWindow(m_hContact, isChat()));
 	m_pParent = (ParentWindowData *)GetWindowLongPtr(m_hwndParent, GWLP_USERDATA);
 
+	m_bSendFormat = g_plugin.bSendFormat;
 	m_btnOk.OnClick = Callback(this, &CMsgDialog::onClick_Ok);
 
 	timerType.OnEvent = Callback(this, &CMsgDialog::onType);
@@ -290,63 +275,69 @@ void CMsgDialog::onClick_Ok(CCtrlButton *pButton)
 	if (!pButton->Enabled() || m_hContact == 0)
 		return;
 
-	PARAFORMAT2 pf2;
-	memset(&pf2, 0, sizeof(pf2));
-	pf2.cbSize = sizeof(pf2);
-	pf2.dwMask = PFM_RTLPARA;
-	m_message.SendMsg(EM_GETPARAFORMAT, 0, (LPARAM)&pf2);
-
-	SendQueue::Item msi = {};
-	if (pf2.wEffects & PFE_RTLPARA)
-		msi.flags |= DBEF_RTL;
-
-	msi.sendBuffer = m_message.GetRichTextRtf(true);
-	msi.sendBufferSize = (int)mir_strlen(msi.sendBuffer);
-	if (msi.sendBufferSize == 0)
+	ptrA streamOut(m_message.GetRichTextRtf(!m_bSendFormat));
+	if (streamOut == nullptr)
 		return;
 
-	if (Utils_IsRtl(ptrW(mir_utf8decodeW(msi.sendBuffer))))
-		msi.flags |= DBEF_RTL;
+	CMStringW wszText(ptrW(mir_utf8decodeW(streamOut)));
+	if (wszText.IsEmpty())
+		return;
 
-	// Store messaging history
-	TCmdList *cmdListNew = tcmdlist_last(cmdList);
-	while (cmdListNew != nullptr && cmdListNew->temporary) {
-		cmdList = tcmdlist_remove(cmdList, cmdListNew);
-		cmdListNew = tcmdlist_last(cmdList);
-	}
-	if (msi.sendBuffer != nullptr)
-		cmdList = tcmdlist_append(cmdList, mir_strdup(rtrim(msi.sendBuffer)), 20, FALSE);
-
-	cmdListCurrent = nullptr;
+	if (m_bSendFormat)
+		DoRtfToTags(wszText);
+	wszText.TrimRight();
 
 	if (m_nTypeMode == PROTOTYPE_SELFTYPING_ON)
 		NotifyTyping(PROTOTYPE_SELFTYPING_OFF);
 
-	m_message.SetText(L"");
-	m_btnOk.Disable();
-	if (g_plugin.bAutoMin)
-		ShowWindow(m_hwndParent, SW_MINIMIZE);
-
 	if (isChat()) {
-		CMStringW ptszText(ptrW(mir_utf8decodeW(msi.sendBuffer)));
-		g_chatApi.DoRtfToTags(ptszText, 0, nullptr);
-		ptszText.Trim();
-		ptszText.Replace(L"%", L"%%");
-
 		if (m_si->pMI->bAckMsg) {
 			EnableWindow(m_message.GetHwnd(), FALSE);
 			m_message.SendMsg(EM_SETREADONLY, TRUE, 0);
 		}
 		else m_message.SetText(L"");
 
-		Chat_DoEventHook(m_si, GC_USER_MESSAGE, nullptr, ptszText, 0);
+		Chat_DoEventHook(m_si, GC_USER_MESSAGE, nullptr, wszText, 0);
 	}
 	else {
+		PARAFORMAT2 pf2;
+		memset(&pf2, 0, sizeof(pf2));
+		pf2.cbSize = sizeof(pf2);
+		pf2.dwMask = PFM_RTLPARA;
+		m_message.SendMsg(EM_GETPARAFORMAT, 0, (LPARAM)&pf2);
+
+		SendQueue::Item msi = {};
+		if (pf2.wEffects & PFE_RTLPARA)
+			msi.flags |= DBEF_RTL;
+
+		msi.sendBuffer = mir_utf8encodeW(wszText);
+		msi.sendBufferSize = (int)mir_strlen(msi.sendBuffer);
+
+		if (Utils_IsRtl(wszText))
+			msi.flags |= DBEF_RTL;
+
+		// Store messaging history
+		TCmdList *cmdListNew = tcmdlist_last(cmdList);
+		while (cmdListNew != nullptr && cmdListNew->temporary) {
+			cmdList = tcmdlist_remove(cmdList, cmdListNew);
+			cmdListNew = tcmdlist_last(cmdList);
+		}
+		if (msi.sendBuffer != nullptr)
+			cmdList = tcmdlist_append(cmdList, mir_strdup(rtrim(msi.sendBuffer)), 20, FALSE);
+
+		cmdListCurrent = nullptr;
+
 		if (pButton == nullptr)
 			m_pParent->MessageSend(msi);
 		else
 			MessageSend(msi);
 	}
+
+	m_message.SetText(L"");
+	m_btnOk.Disable();
+	if (g_plugin.bAutoMin)
+		ShowWindow(m_hwndParent, SW_MINIMIZE);
+
 	m_btnCloseQuote.Click();
 }
 
@@ -371,7 +362,7 @@ void CMsgDialog::onClick_Quote(CCtrlButton*)
 	if (!hDbEventLast)
 		return;
 
-	wchar_t *buffer = m_pLog->GetSelection();
+	wchar_t *buffer = m_pLog->GetSelectedText();
 	if (buffer != nullptr) {
 		SetMessageText(Srmm_Quote(buffer));
 		mir_free(buffer);
@@ -508,6 +499,28 @@ void CMsgDialog::MessageDialogResize(int w, int h)
 	int messageEditWidth = w - 2;
 	int hSplitterPos = (m_bReadOnly) ? 0 : pdat->iSplitterY;
 
+	int infobarInnerHeight = INFO_BAR_INNER_HEIGHT;
+	int infobarHeight = INFO_BAR_HEIGHT;
+
+	if (!pdat->flags2.bShowInfoBar || m_si) {
+		infobarHeight = 0;
+		infobarInnerHeight = 0;
+	}
+
+	int hSplitterMinTop = toolbarHeight + m_minLogBoxHeight, hSplitterMinBottom = m_minEditBoxHeight;
+	if (hSplitterMinBottom < g_dat.minInputAreaHeight)
+		hSplitterMinBottom = g_dat.minInputAreaHeight;
+
+	if (hSplitterPos > (h - toolbarHeight - infobarHeight + SPLITTER_HEIGHT + 1) / 2)
+		hSplitterPos = (h - toolbarHeight - infobarHeight + SPLITTER_HEIGHT + 1) / 2;
+
+	if (h - hSplitterPos - infobarHeight < hSplitterMinTop)
+		hSplitterPos = h - hSplitterMinTop - infobarHeight;
+
+	hSplitterMinBottom -= toolbarHeight - 2;
+	if (hSplitterPos < hSplitterMinBottom)
+		hSplitterPos = hSplitterMinBottom;
+
 	if (!pdat->flags2.bShowInfoBar) {
 		if (m_hbmpAvatarPic && g_dat.flags.bShowAvatar) {
 			avatarWidth = BOTTOM_RIGHT_AVATAR_HEIGHT;
@@ -530,30 +543,6 @@ void CMsgDialog::MessageDialogResize(int w, int h)
 		}
 	}
 
-	int infobarInnerHeight = INFO_BAR_INNER_HEIGHT;
-	int infobarHeight = INFO_BAR_HEIGHT;
-
-	if (!pdat->flags2.bShowInfoBar || m_si) {
-		infobarHeight = 0;
-		infobarInnerHeight = 0;
-	}
-
-	int hSplitterMinTop = toolbarHeight + m_minLogBoxHeight, hSplitterMinBottom = m_minEditBoxHeight;
-	if (hSplitterMinBottom < g_dat.minInputAreaHeight)
-		hSplitterMinBottom = g_dat.minInputAreaHeight;
-
-	if (hSplitterPos > (h - toolbarHeight - infobarHeight + SPLITTER_HEIGHT + 1) / 2)
-		hSplitterPos = (h - toolbarHeight - infobarHeight + SPLITTER_HEIGHT + 1) / 2;
-
-	if (h - hSplitterPos - infobarHeight < hSplitterMinTop)
-		hSplitterPos = h - hSplitterMinTop - infobarHeight;
-
-	if (hSplitterPos < avatarHeight)
-		hSplitterPos = avatarHeight;
-
-	if (hSplitterPos < hSplitterMinBottom)
-		hSplitterPos = hSplitterMinBottom;
-
 	if (m_bReadOnly)
 		hSplitterPos = 0;
 	else
@@ -562,11 +551,6 @@ void CMsgDialog::MessageDialogResize(int w, int h)
 	HDWP hdwp;
 	if (isChat()) {
 		bool bNick = m_si->iType != GCW_SERVER && m_bNicklistEnabled;
-
-		if (h - pdat->iSplitterY < hSplitterMinTop)
-			pdat->iSplitterY = h - hSplitterMinTop;
-		if (pdat->iSplitterY < hSplitterMinBottom)
-			pdat->iSplitterY = hSplitterMinBottom;
 
 		m_splitterX.Show(bNick);
 		if (m_si->iType != GCW_SERVER)
@@ -590,7 +574,7 @@ void CMsgDialog::MessageDialogResize(int w, int h)
 		logH = h - hSplitterPos - toolbarHeight - infobarInnerHeight - SPLITTER_HEIGHT;
 
 		hdwp = BeginDeferWindowPos(8);
-		hdwp = DeferWindowPos(hdwp, hwndLog, nullptr, 1, 0, bNick ? w - pdat->iSplitterX - 1 : messageEditWidth, logH, SWP_NOZORDER);
+		hdwp = DeferWindowPos(hdwp, hwndLog, nullptr, 1, 0, bNick ? w - pdat->iSplitterX - 1 : w - 2, logH, SWP_NOZORDER);
 		hdwp = DeferWindowPos(hdwp, m_nickList.GetHwnd(), nullptr, w - pdat->iSplitterX + 2, 0, pdat->iSplitterX - 3, logH, SWP_NOZORDER);
 		hdwp = DeferWindowPos(hdwp, m_splitterX.GetHwnd(), nullptr, w - pdat->iSplitterX, 1, 2, logH, SWP_NOZORDER);
 
@@ -715,12 +699,27 @@ LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 		return result;
 
 	switch (msg) {
-	case WM_KEYDOWN:
-		if (isChat()) {
-			bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-			bool isCtrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-			bool isAlt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+	case EM_ACTIVATE:
+		SetActiveWindow(m_hwnd);
+		break;
 
+	case WM_SYSCHAR:
+		if ((wParam == 's' || wParam == 'S') && (GetKeyState(VK_MENU) & 0x8000)) {
+			PostMessage(m_hwnd, WM_COMMAND, IDOK, 0);
+			return 0;
+		}
+		break;
+
+	case WM_CONTEXTMENU:
+		InputAreaContextMenu(m_message.GetHwnd(), wParam, lParam, m_hContact);
+		return TRUE;
+
+	case WM_KEYDOWN:
+		bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+		bool isCtrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+		bool isAlt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+
+		if (isChat()) {
 			if (wParam == VK_TAB && isShift && !isCtrl) { // SHIFT-TAB (go to nick list)
 				SetFocus(m_nickList.GetHwnd());
 				return TRUE;
@@ -733,7 +732,7 @@ LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 				RedrawWindow(m_nickList.GetHwnd(), nullptr, nullptr, RDW_INVALIDATE);
 				return 0;
 			}
-			
+
 			if (wParam != VK_RIGHT && wParam != VK_LEFT) {
 				replaceStrW(m_wszSearchQuery, nullptr);
 				replaceStrW(m_wszSearchResult, nullptr);
@@ -760,26 +759,11 @@ LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 					m_btnChannelMgr.Click();
 				return TRUE;
 			}
-
-			if (ProcessHotkeys(wParam, isShift, isCtrl, isAlt))
-				return TRUE;
 		}
-		break;
 
-	case EM_ACTIVATE:
-		SetActiveWindow(m_hwnd);
+		if (ProcessHotkeys(wParam, isShift, isCtrl, isAlt))
+			return TRUE;
 		break;
-
-	case WM_SYSCHAR:
-		if ((wParam == 's' || wParam == 'S') && (GetKeyState(VK_MENU) & 0x8000)) {
-			PostMessage(m_hwnd, WM_COMMAND, IDOK, 0);
-			return 0;
-		}
-		break;
-
-	case WM_CONTEXTMENU:
-		InputAreaContextMenu(m_message.GetHwnd(), wParam, lParam, m_hContact);
-		return TRUE;
 	}
 	return CSuper::WndProc_Message(msg, wParam, lParam);
 }
@@ -871,17 +855,7 @@ INT_PTR CMsgDialog::DlgProc(UINT msg, WPARAM wParam, LPARAM lParam)
 
 	case DM_ACTIVATE:
 		if (isChat()) {
-			if (m_si->wState & STATE_TALK) {
-				m_si->wState &= ~STATE_TALK;
-				db_set_w(m_hContact, m_si->pszModule, "ApparentMode", 0);
-			}
-
-			if (m_si->wState & GC_EVENT_HIGHLIGHT) {
-				m_si->wState &= ~GC_EVENT_HIGHLIGHT;
-
-				if (Clist_GetEvent(m_hContact, 0))
-					Clist_RemoveEvent(m_hContact, GC_FAKE_EVENT);
-			}
+			m_si->markRead();
 
 			FixTabIcons();
 			if (!m_si->pDlg) {
@@ -896,13 +870,9 @@ INT_PTR CMsgDialog::DlgProc(UINT msg, WPARAM wParam, LPARAM lParam)
 		if (LOWORD(wParam) != WA_ACTIVE)
 			break;
 
+		SetFocus(m_message.GetHwnd());
 		if (isChat()) {
-			SetFocus(m_message.GetHwnd());
-
-			if (db_get_w(m_hContact, m_si->pszModule, "ApparentMode", 0) != 0)
-				db_set_w(m_hContact, m_si->pszModule, "ApparentMode", 0);
-			if (Clist_GetEvent(m_hContact, 0))
-				Clist_RemoveEvent(m_hContact, GC_FAKE_EVENT);
+			m_si->markRead(true);
 		}
 		else {
 			if (m_hDbUnreadEventFirst != 0) {
@@ -1073,29 +1043,12 @@ INT_PTR CMsgDialog::DlgProc(UINT msg, WPARAM wParam, LPARAM lParam)
 		pNmhdr = (LPNMHDR)lParam;
 		switch (pNmhdr->idFrom) {
 		case IDC_SRMM_LOG:
-			switch (pNmhdr->code) {
-			case EN_MSGFILTER:
-				{
-					int result = InputAreaShortcuts(m_message.GetHwnd(), ((MSGFILTER *)lParam)->msg, ((MSGFILTER *)lParam)->wParam, ((MSGFILTER *)lParam)->lParam);
-					if (result != -1) {
-						SetWindowLongPtr(m_hwnd, DWLP_MSGRESULT, TRUE);
-						return TRUE;
-					}
-				}
-
-				switch (((MSGFILTER *)lParam)->msg) {
-				case WM_RBUTTONUP:
+			if (pNmhdr->code == EN_MSGFILTER) {
+				int result = InputAreaShortcuts(m_message.GetHwnd(), ((MSGFILTER *)lParam)->msg, ((MSGFILTER *)lParam)->wParam, ((MSGFILTER *)lParam)->lParam);
+				if (result != -1) {
 					SetWindowLongPtr(m_hwnd, DWLP_MSGRESULT, TRUE);
 					return TRUE;
 				}
-				break;
-			}
-			break;
-		
-		case IDC_SRMM_MESSAGE:
-			if (pNmhdr->code == EN_MSGFILTER && ((MSGFILTER *)lParam)->msg == WM_RBUTTONUP) {
-				SetWindowLongPtr(m_hwnd, DWLP_MSGRESULT, TRUE);
-				return TRUE;
 			}
 			break;
 		}

@@ -25,10 +25,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <m_popup.h>
 #include <m_fontservice.h>
 
+#define GC_FAKE_EVENT MEVENT(0xBABABEDA)
+
 #define STREAMSTAGE_HEADER  0
 #define STREAMSTAGE_EVENTS  1
 #define STREAMSTAGE_TAIL    2
 #define STREAMSTAGE_STOP    3
+
+#define N_CUSTOM_BBCODES    3
+extern wchar_t *wszBbcodes[N_CUSTOM_BBCODES];
 
 #define DM_OPTIONSAPPLIED (WM_USER+14)
 
@@ -95,8 +100,8 @@ void          UM_SortKeys(SESSION_INFO *si);
 
 // clist.c
 MCONTACT      AddRoom(const char *pszModule, const wchar_t *pszRoom, const wchar_t *pszDisplayName, int iType);
-BOOL          SetAllOffline(BOOL bHide, const char *pszModule);
-BOOL          SetOffline(MCONTACT hContact, BOOL bHide);
+BOOL          SetAllOffline(const char *pszModule);
+BOOL          SetOffline(MCONTACT hContact);
 		        
 int           RoomDoubleclicked(WPARAM wParam,LPARAM lParam);
 
@@ -120,7 +125,6 @@ void          UnloadChatModule(void);
 
 // tools.c
 int           DoRtfToTags(CMStringW &pszText, int iNumColors, COLORREF *pColors);
-wchar_t*      RemoveFormatting(const wchar_t* pszText);
 BOOL          DoSoundsFlashPopupTrayStuff(SESSION_INFO *si, GCEVENT *gce, BOOL bHighlight, int bManyFix);
 int           GetRichTextLength(HWND hwnd);
 bool          IsHighlighted(SESSION_INFO *si, GCEVENT *pszText);

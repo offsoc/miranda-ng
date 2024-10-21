@@ -133,14 +133,14 @@ public:
 	virtual void     Clear() = 0;
 	virtual int      GetType() = 0;
 	virtual HWND     GetHwnd() = 0;
-	virtual wchar_t* GetSelection() = 0;
+	virtual wchar_t* GetSelectedText() = 0;
 	virtual void     LogEvents(MEVENT hDbEventFirst, int count, bool bAppend) = 0;
 	virtual void     LogChatEvents(const LOGINFO *lin) = 0;
 	virtual void     Resize() = 0;
 	virtual void     ScrollToBottom() = 0;
 	virtual void     UpdateOptions() {};
 
-	virtual INT_PTR Notify(WPARAM, LPARAM) { return 0; }
+	virtual INT_PTR   Notify(WPARAM, LPARAM) { return 0; }
 
 	__forceinline CMsgDialog& GetDialog() const
 	{	return m_pDlg;
@@ -260,7 +260,7 @@ public:
 	bool     AtBottom() override;
 	void     Clear() override;
 	HWND     GetHwnd() override;
-	wchar_t* GetSelection() override;
+	wchar_t* GetSelectedText() override;
 	int      GetType() override;
 	void     Resize() override;
 	void     ScrollToBottom() override;
@@ -291,7 +291,7 @@ class MIR_APP_EXPORT CSrmmBaseDialog : public CDlgBase
 	std::vector<MEVENT> m_arDisplayedEvents;
 
 protected:
-	CSrmmBaseDialog(CMPluginBase &pPlugin, int idDialog, struct SESSION_INFO *si = nullptr);
+	CSrmmBaseDialog(CMPluginBase &pPlugin, int idDialog, MCONTACT hContact);
 
 	bool OnInitDialog() override;
 	void OnDestroy() override;
@@ -299,6 +299,7 @@ protected:
 	INT_PTR DlgProc(UINT msg, WPARAM wParam, LPARAM lParam) override;
 
 	bool AllowTyping() const;
+	void InsertBbcodeString(const wchar_t *pwszStr);
 	int  NotifyEvent(int code);
 	#ifdef _WINDOWS
 	bool ProcessFileDrop(HDROP hDrop, MCONTACT hContact);
@@ -306,6 +307,7 @@ protected:
 	#endif
 	bool ProcessHotkeys(int key, bool bShift, bool bCtrl, bool bAlt);
 	void RefreshButtonStatus(void);
+	bool DoRtfToTags(CMStringW &pszText) const;
 	void RunUserMenu(HWND hwndOwner, struct USERINFO *ui, const POINT &pt);
 	void UpdateChatLog(void);
 
@@ -347,9 +349,10 @@ public:
 	MCONTACT m_hContact;
 	MEVENT m_hDbEventFirst, m_hQuoteEvent = 0;
 	int m_iLogFilterFlags;
-	bool m_bFilterEnabled, m_bNicklistEnabled, m_bReadOnly = false;
+	bool m_bFilterEnabled, m_bNicklistEnabled, m_bReadOnly = false, m_bSendFormat;
 	bool m_bFGSet, m_bBGSet;
 	bool m_bInMenu, m_bActive;
+
 	COLORREF m_iFG, m_iBG;
 	CTimer timerFlash, timerType, timerNickList, timerRedraw;
 
@@ -369,10 +372,11 @@ public:
 	virtual void DrawNickList(USERINFO *ui, DRAWITEMSTRUCT *dis) = 0;
 	virtual void EventAdded(MEVENT, const DB::EventInfo &dbei) = 0;
 	virtual bool GetFirstEvent() = 0;
+	virtual void GetInputFont(LOGFONTW &lf, COLORREF &bg, COLORREF &fg) const = 0;
 	virtual bool IsActive() const = 0;
 	virtual void LoadSettings() = 0;
 	virtual void OnOptionsApplied();
-	virtual void RemakeLog() = 0;
+	virtual void RemakeLog();
 	virtual void SetStatusText(const wchar_t *, HICON) {}
 	virtual void ShowFilterMenu() {}
 	virtual void UpdateFilterButton();

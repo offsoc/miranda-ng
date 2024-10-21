@@ -15,7 +15,6 @@
 #define IDD_OPT_MSGTABS                 115
 #define IDD_OPT_LAYOUT                  116
 #define IDI_ADDCONTACT                  120
-#define IDI_USERDETAILS                 121
 #define IDI_HISTORY                     122
 #define IDI_SEND                        123
 #define IDI_SMILEY                      125
@@ -127,6 +126,8 @@
 #define IDC_NOTIFYTRAY                  1607
 #define IDC_NOTIFYBALLOON               1608
 #define IDC_DELTEMP                     1609
+#define IDC_DELTEMP2                    1610
+#define IDC_SEND_FORMAT                 1610
 #define IDC_AVATARSUPPORT               1611
 #define IDC_LIMITNAMES                  1615
 #define IDC_TRANSPARENCY                1616
@@ -186,6 +187,7 @@
 #define IDC_CHAT_LOGDIRECTORY           5048
 #define IDC_CHAT_LIMIT                  5050
 #define IDC_CHAT_LOGTIMESTAMP           5051
+#define IDC_CHAT_USEGROUP               5052
 #define IDC_CHAT_GROUP                  5057
 #define IDC_CHAT_HIGHLIGHT              5068
 #define IDC_CHAT_TEXTO                  5069

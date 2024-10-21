@@ -413,7 +413,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	void     AdjustBottomAvatarDisplay(void);
 	bool     CalcDynamicAvatarSize(BITMAP *bminfo);
 	void     DetermineMinHeight(void);
-	BOOL     DoRtfToTags(CMStringW &pszText) const;
 	int      FindRTLLocale(void);
 	void     FlashOnClist(MEVENT hEvent, const DB::EventInfo &dbei);
 	void     FlashTab(bool bInvertMode);
@@ -421,7 +420,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	void     GetSendFormat(void);
 	HICON    GetXStatusIcon() const;
 	void     HandlePasteAndSend(void);
-	void     Init(void);
 	void     LoadContactAvatar(void);
 	void     LoadOwnAvatar(void);
 	void     LoadSplitter(void);
@@ -465,7 +463,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	bool     m_bInsertMode, m_bInitMode = true;
 	bool     m_bDeferredScroll;
 	bool     m_bWasBackgroundCreate;
-	bool     m_bSendFormat;
 
 	int      m_iRealAvatarHeight;
 	int      m_iButtonBarReallyNeeds;
@@ -537,7 +534,6 @@ public:
 	int      rcLogBottom;
 	bool     m_bActivate, m_bWantPopup, m_bIsMeta;
 
-	wchar_t* wszInitialText;
 	TOOLINFO ti;
 	CInfoPanel m_pPanel;
 	CProxyWindow *m_pWnd;	// proxy window object (win7+, for taskbar support).
@@ -558,7 +554,6 @@ public:
 
 public:
 	CMsgDialog(int dlgId, MCONTACT hContact);
-	CMsgDialog(SESSION_INFO *si);
 	~CMsgDialog();
 
 	void onClick_Ok(CCtrlButton *);
@@ -591,6 +586,7 @@ public:
 	void DrawNickList(USERINFO *ui, DRAWITEMSTRUCT *dis) override;
 	void EventAdded(MEVENT, const DB::EventInfo &dbei) override;
 	bool GetFirstEvent() override;
+	void GetInputFont(LOGFONTW &lf, COLORREF &bg, COLORREF &fg) const override;
 	bool IsActive() const override;
 	void LoadSettings() override;
 	void OnOptionsApplied() override;
@@ -647,6 +643,7 @@ public:
 	void SaveSplitter(void);
 	void SelectContainer(void);
 	void SetDialogToType(void);
+	void SetInitMessage(const wchar_t *pwszInitMessage);
 	void ShowPicture(bool showNewPic);
 	void SplitterMoved(int x, HWND hwnd);
 	void SwitchToContainer(const wchar_t *szNewName);
@@ -1042,7 +1039,7 @@ struct CMPlugin : public PLUGIN<CMPlugin>
 
 	// chat settings
 	CMOption<bool> bOpenInDefault, bCreateWindowOnHighlight, bBBCodeInPopups;
-	CMOption<bool> bLogClassicIndicators, bAlternativeSorting, bAnnoyingHighlight;
+	CMOption<bool> bLogClassicIndicators, bAlternativeSorting;
 	CMOption<bool> bLogSymbols, bClassicIndicators, bClickableNicks, bColorizeNicks, bColorizeNicksInLog;
 	CMOption<bool> bScaleIcons, bNewLineAfterNames;
 

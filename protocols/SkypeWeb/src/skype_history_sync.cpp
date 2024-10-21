@@ -32,8 +32,8 @@ void CSkypeProto::OnGetServerHistory(MHttpResponse *response, AsyncHttpRequest *
 	int totalCount = metadata["totalCount"].as_int();
 	std::string syncState = metadata["syncState"].as_string();
 
-	bool markAllAsUnread = getBool("MarkMesUnread", true);
-	bool bUseLocalTime = !bUseServerTime && pRequest->pUserInfo != 0;
+	bool bOperative = pRequest->pUserInfo != 0;
+	bool bUseLocalTime = !m_bUseServerTime && bOperative;
 	bool bSetLastTime = false;
 
 	int64_t lastMsgTime = 0; // max timestamp on this page
@@ -42,7 +42,12 @@ void CSkypeProto::OnGetServerHistory(MHttpResponse *response, AsyncHttpRequest *
 	auto &conv = root["messages"];
 	for (auto it = conv.rbegin(); it != conv.rend(); ++it) {
 		auto &message = *it;
-		CMStringA szMessageId = message["clientmessageid"] ? message["clientmessageid"].as_string().c_str() : message["skypeeditedid"].as_string().c_str();
+		CMStringA szMessageId = message["id"].as_mstring();
+		int64_t id = _atoi64(szMessageId);
+		if (id > lastMsgTime) {
+			bSetLastTime = true;
+			lastMsgTime = id;
+		}
 
 		int iUserType;
 		CMStringA szChatId = UrlToSkypeId(message["conversationLink"].as_mstring(), &iUserType);
@@ -55,17 +60,16 @@ void CSkypeProto::OnGetServerHistory(MHttpResponse *response, AsyncHttpRequest *
 		dbei.szModule = m_szModuleName;
 		dbei.timestamp = (bUseLocalTime) ? iLocalTime : IsoToUnixTime(message["composetime"].as_string());
 		dbei.szId = szMessageId;
-		if (iUserType == 19)
+		if (iUserType == 19) {
 			dbei.szUserId = szFrom;
 
-		int64_t id = _atoi64(message["id"].as_string().c_str());
-		if (id > lastMsgTime) {
-			bSetLastTime = true;
-			lastMsgTime = id;
+			CMStringA szType(message["messagetype"].as_mstring());
+			if (szType.Left(15) == "ThreadActivity/")
+				continue;
 		}
 
 		dbei.flags = DBEF_UTF;
-		if (!markAllAsUnread)
+		if (!bOperative && !dbei.getEvent())
 			dbei.flags |= DBEF_READ;
 		if (IsMe(szFrom))
 			dbei.flags |= DBEF_SENT;
@@ -128,8 +132,8 @@ void CSkypeProto::OnSyncConversations(MHttpResponse *response, AsyncHttpRequest*
 			MCONTACT hContact = FindContact(szSkypename);
 			if (hContact != NULL) {
 				auto lastMsgTime = getLastTime(hContact);
-				if (lastMsgTime && lastMsgTime < id && bAutoHistorySync)
-					PushRequest(new GetHistoryRequest(hContact, szSkypename, 100, lastMsgTime, true));
+				if (lastMsgTime && lastMsgTime < id && m_bAutoHistorySync)
+					PushRequest(new GetHistoryRequest(hContact, szSkypename, 100, lastMsgTime, false));
 			}
 		}
 	}

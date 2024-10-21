@@ -49,8 +49,7 @@ static int compareModules(const MODULEINFO *p1, const MODULEINFO *p2)
 static LIST<MODULEINFO> g_arModules(5, compareModules);
 
 /////////////////////////////////////////////////////////////////////////////////////////
-//	Session Manager functions
-//	Keeps track of all sessions and its windows
+// SESSION_INFO class members
 
 static int CompareEvents(const LOGINFO *p1, const LOGINFO *p2)
 {
@@ -98,17 +97,29 @@ const char* SESSION_INFO::SESSION_INFO::getSoundName(int iEventType) const
 	return nullptr;
 }
 
-static SESSION_INFO* SM_CreateSession(void)
+void SESSION_INFO::markRead(bool bForce)
 {
-	return new SESSION_INFO();
+	if ((wState & STATE_TALK) || bForce) {
+		wState &= ~STATE_TALK;
+		db_unset(hContact, pszModule, "ApparentMode");
+	}
+
+	if ((wState & GC_EVENT_HIGHLIGHT) || bForce) {
+		wState &= ~GC_EVENT_HIGHLIGHT;
+
+		if (Clist_GetEvent(hContact, 0))
+			Clist_RemoveEvent(hContact, GC_FAKE_EVENT);
+	}
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
+//	Session Manager functions
+//	Keeps track of all sessions and its windows
 
 void SM_FreeSession(SESSION_INFO *si)
 {
-	if (Clist_GetEvent(si->hContact, 0))
-		Clist_RemoveEvent(si->hContact, GC_FAKE_EVENT);
-	si->wState &= ~STATE_TALK;
-	db_set_w(si->hContact, si->pszModule, "ApparentMode", 0);
+	si->markRead(true);
+	db_unset(si->hContact, si->pszModule, "ApparentMode");
 
 	if (si->pDlg)
 		si->pDlg->CloseTab();
@@ -118,7 +129,7 @@ void SM_FreeSession(SESSION_INFO *si)
 	// contact may have been deleted here already, since function may be called after deleting
 	// contact so the handle may be invalid, therefore db_get_b shall return 0
 	if (si->hContact && Contact::IsGroupChat(si->hContact, si->pszModule)) {
-		g_chatApi.SetOffline(si->hContact, (si->iType == GCW_CHATROOM || si->iType == GCW_PRIVMESS) ? TRUE : FALSE);
+		SetOffline(si->hContact);
 		db_set_s(si->hContact, si->pszModule, "Topic", "");
 		db_set_s(si->hContact, si->pszModule, "StatusBar", "");
 		db_unset(si->hContact, "CList", "StatusMsg");
@@ -749,7 +760,6 @@ static void CreateNick(const SESSION_INFO *, const LOGINFO *lin, CMStringW &wszN
 
 static void ResetApi()
 {
-	g_chatApi.SM_CreateSession = ::SM_CreateSession;
 	g_chatApi.SM_GetStatusIcon = ::SM_GetStatusIcon;
 	g_chatApi.SM_GetCount = ::SM_GetCount;
 	g_chatApi.SM_FindSessionByIndex = ::SM_FindSessionByIndex;
@@ -772,10 +782,6 @@ static void ResetApi()
 	g_chatApi.UM_TakeStatus = ::UM_TakeStatus;
 	g_chatApi.UM_FindUserAutoComplete = ::UM_FindUserAutoComplete;
 
-	g_chatApi.SetOffline = ::SetOffline;
-	g_chatApi.SetAllOffline = ::SetAllOffline;
-	g_chatApi.DoRtfToTags = ::DoRtfToTags;
-
 	g_chatApi.LoadMsgDlgFont = ::LoadMsgDlgFont;
 	g_chatApi.MakeTimeStamp = ::MakeTimeStamp;
 
@@ -788,7 +794,6 @@ static void ResetApi()
 
 	g_chatApi.CreateNick = ::CreateNick;
 	g_chatApi.IsHighlighted = ::IsHighlighted;
-	g_chatApi.RemoveFormatting = ::RemoveFormatting;
 	g_chatApi.ReloadSettings = ::LoadGlobalSettings;
 }
 

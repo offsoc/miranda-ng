@@ -156,7 +156,7 @@ static INT_PTR SendMessageCommandWorker(MCONTACT hContact, wchar_t *pszMsg)
 		pDlg->PopupWindow();
 	}
 	else {
-		pDlg = new CMsgDialog(hContact, false);
+		pDlg = new CMsgDialog(hContact, true);
 		pDlg->m_wszInitialText = pszMsg;
 		pDlg->Show();
 	}
@@ -381,7 +381,7 @@ int RegisterToolbarIcons(WPARAM, LPARAM)
 
 	bbd.dwButtonID = IDC_DETAILS;
 	bbd.dwDefPos = 40;
-	bbd.hIcon = g_plugin.getIconHandle(IDI_USERDETAILS);
+	bbd.hIcon = Skin_GetIconHandle(SKINICON_OTHER_USERDETAILS);
 	bbd.pwszText = LPGENW("User &details");
 	bbd.pwszTooltip = LPGENW("View user's details");
 	g_plugin.addButton(&bbd);
@@ -394,8 +394,8 @@ int RegisterToolbarIcons(WPARAM, LPARAM)
 	bbd.pwszTooltip = LPGENW("View user's history (Ctrl+H)");
 	g_plugin.addButton(&bbd);
 
-	// chat buttons
-	bbd.bbbFlags = BBBF_ISPUSHBUTTON | BBBF_ISCHATBUTTON | BBBF_CREATEBYID | BBBF_NOREADONLY;
+	// format buttons
+	bbd.bbbFlags = BBBF_ISPUSHBUTTON | BBBF_ISCHATBUTTON | BBBF_ISIMBUTTON | BBBF_CREATEBYID | BBBF_NOREADONLY;
 	bbd.dwButtonID = IDC_SRMM_BOLD;
 	bbd.dwDefPos = 10;
 	bbd.hIcon = g_plugin.getIconHandle(IDI_BBOLD);
@@ -431,6 +431,7 @@ int RegisterToolbarIcons(WPARAM, LPARAM)
 	bbd.pwszTooltip = LPGENW("Select a background color for the text (Ctrl+L)");
 	g_plugin.addButton(&bbd);
 
+	// chat buttons
 	bbd.bbbFlags = BBBF_ISCHATBUTTON | BBBF_ISRSIDEBUTTON | BBBF_CREATEBYID;
 	bbd.dwButtonID = IDC_SRMM_CHANMGR;
 	bbd.dwDefPos = 30;

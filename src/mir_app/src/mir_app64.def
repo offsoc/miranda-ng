@@ -291,11 +291,10 @@ Netlib_NtlmCreateResponse @383
 ?get_uin@AUTH_BLOB@DB@@QEBAIXZ @396 NONAME
 ?makeBlob@AUTH_BLOB@DB@@AEAAPEADXZ @397 NONAME
 ?size@AUTH_BLOB@DB@@QEBAIXZ @398 NONAME
-Chat_UnescapeTags @399 NONAME
 ProtoGetAvatarFormatByMimeType @400
 ProtoGetAvatarMimeType @401
 ?set_uin@AUTH_BLOB@DB@@QEAAXI@Z @402 NONAME
-??0CSrmmBaseDialog@@IEAA@AEAVCMPluginBase@@HPEAUSESSION_INFO@@@Z @403 NONAME
+??0CSrmmBaseDialog@@IEAA@AEAVCMPluginBase@@HI@Z @403 NONAME
 Miranda_GetSystemWindow @404 NONAME
 ??1CSrmmBaseDialog@@UEAA@XZ @405 NONAME
 Srmm_FindDialog @406 NONAME
@@ -665,7 +664,7 @@ UnregisterHppLogger @786
 ?Clear@CRtfLogWindow@@UEAAXXZ @795 NONAME
 ?Detach@CRtfLogWindow@@UEAAXXZ @796 NONAME
 ?GetHwnd@CRtfLogWindow@@UEAAPEAUHWND__@@XZ @797 NONAME
-?GetSelection@CRtfLogWindow@@UEAAPEA_WXZ @798 NONAME
+?GetSelectedText@CRtfLogWindow@@UEAAPEA_WXZ @798 NONAME
 ?Notify@CRtfLogWindow@@UEAA_J_K_J@Z @799 NONAME
 ?Notify@CSrmmLogWindow@@UEAA_J_K_J@Z @800 NONAME
 ?Resize@CRtfLogWindow@@UEAAXXZ @801 NONAME
@@ -850,7 +849,7 @@ Chat_IsMuted @941 NONAME
 ?getIcon@LOGINFO@@QEBAHXZ @981 NONAME
 ?getIndex@LOGINFO@@QEBAHXZ @982 NONAME
 ?write@LOGINFO@@QEBAXPEAURtfChatLogStreamData@@_NAEAV?$CMStringT@DV?$ChTraitsCRT@D@@@@PEB_W@Z @983 NONAME
-?OnReceiveOfflineFile@PROTO_INTERFACE@@UEAAXAEAVFILE_BLOB@DB@@@Z @984 NONAME
+?OnReceiveOfflineFile@PROTO_INTERFACE@@UEAAXAEAVEventInfo@DB@@AEAVFILE_BLOB@3@@Z @984 NONAME
 ?setSize@FILE_BLOB@DB@@QEAAX_J@Z @985 NONAME
 ?setUrl@FILE_BLOB@DB@@QEAAXPEBD@Z @986 NONAME
 ?Clist_GetEvent@@YAPEAUCListEvent@@IH@Z @987 NONAME
@@ -986,3 +985,10 @@ g_hevEventSetJson @1103 NONAME
 ?process@MJsonWebSocket@@EEAAXPEBE_K@Z @1117 NONAME
 Proto_CanDeleteHistory @1118 NONAME
 ?OnCacheInit@PROTO_INTERFACE@@UEAAXXZ @1119 NONAME
+?DoRtfToTags@CSrmmBaseDialog@@IEBA_NAEAV?$CMStringT@_WV?$ChTraitsCRT@_W@@@@@Z @1120 NONAME
+?bUseGroup@Chat@@3V?$CMOption@_N@@A @1121 NONAME
+?isCustom@EventInfo@DB@@QEBA_NH@Z @1122 NONAME
+?InsertBbcodeString@CSrmmBaseDialog@@IEAAXPEB_W@Z @1123 NONAME
+?markRead@SESSION_INFO@@QEAAX_N@Z @1124 NONAME
+?Srmm_NotifyRemoteRead@@YAXII@Z @1125 NONAME
+?RemakeLog@CSrmmBaseDialog@@UEAAXXZ @1126 NONAME

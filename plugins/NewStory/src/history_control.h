@@ -9,8 +9,6 @@ class NSWebPage : public document_container
 {
 	typedef std::map<std::wstring, uint_ptr> images_map;
 
-	ULONG_PTR m_gdiplusToken;
-
 	mir_cs m_csImages;
 	images_map m_images;
 
@@ -23,7 +21,6 @@ class NSWebPage : public document_container
 
 	std::string resolve_color(const string &color) const;
 	uint_ptr	get_image(LPCWSTR url_or_path, bool redraw_on_ready);
-	void make_url(LPCWSTR url, LPCWSTR basepath, std::wstring &out);
 
 	void get_client_rect(position &client) const override;
 	void import_css(string &text, const string &url, string &baseurl) override;
@@ -34,7 +31,6 @@ class NSWebPage : public document_container
 
 	void draw_image(uint_ptr hdc, const background_layer &layer, const std::string &url, const std::string &base_url) override;
 	void get_img_size(uint_ptr img, size &sz);
-	void free_image(uint_ptr img);
 
 	// document_container members
 	uint_ptr create_font(const char *faceName, int size, int weight, font_style italic, unsigned int decoration, font_metrics *fm) override;
@@ -74,7 +70,7 @@ class NSWebPage : public document_container
 	void release_clip(HDC hdc);
 	void set_clip(const position &pos, const border_radiuses &bdr_radius) override;
 
-	void make_url_utf8(const char *url, const char *basepath, std::wstring &out);
+	void on_mouse_event(const litehtml::element::ptr &, litehtml::mouse_event) override {}
 
 	void clear_images();
 
@@ -87,7 +83,9 @@ public:
 	COLORREF clText = -1, clBack = -1;
 
 	Bitmap* find_image(const wchar_t *pwszUrl);
-	Bitmap* load_image(const wchar_t *pwszUrl);
+	Bitmap* load_image(const wchar_t *pwszUrl, ItemData *pItem);
+
+	void draw();
 };
 
 struct NewstoryListData : public MZeroedObject
@@ -124,12 +122,12 @@ struct NewstoryListData : public MZeroedObject
 	simpledib::dib dib;
 
 	void      OnContextMenu(int index, POINT pt);
-	void      OnResize(int newWidth, int newHeight);
+	void      OnResize();
 	
 	void      onTimer_Draw(CTimer *pTimer);
 
 	void      AddChatEvent(SESSION_INFO *si, const LOGINFO *lin);
-	void      AddEvent(MCONTACT hContact, MEVENT hFirstEvent, int iCount);
+	void      AddEvent(MCONTACT hContact, MEVENT hFirstEvent, int iCount, bool bNew = false);
 	void      AddResults(const OBJLIST<SearchResult> &results);
 	void      AddSelection(int iFirst, int iLast);
 	bool      AtBottom(void) const;
@@ -142,6 +140,7 @@ struct NewstoryListData : public MZeroedObject
 	void      CopyPath();
 	void      CopyUrl();
 	void      DeleteItems(void);
+	void      DeliverEvent(MCONTACT hContact, MEVENT hEvent);
 	void      Download(int iOptions);
 	void      EndEditItem(bool bAccept);
 	void      EnsureVisible(int item);
@@ -170,6 +169,7 @@ struct NewstoryListData : public MZeroedObject
 	void      Paint(simpledib::dib &dib);
 	void      Quote();
 	void      RecalcScrollBar();
+	void      RemoteRead(MCONTACT hContact, MEVENT hEvent);
 	void      Reply();
 	void      ScheduleDraw();
 	void      ScrollBottom();
@@ -187,5 +187,7 @@ struct NewstoryListData : public MZeroedObject
 };
 
 void InitNewstoryControl();
+
+INT_PTR SvcFileReady(WPARAM wParam, LPARAM);
 
 #endif // __history_control_h__

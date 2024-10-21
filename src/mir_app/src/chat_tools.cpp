@@ -38,53 +38,6 @@ int GetRichTextLength(HWND hwnd)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-wchar_t* RemoveFormatting(const wchar_t *pszWord)
-{
-	static wchar_t szTemp[10000];
-
-	if (pszWord == nullptr)
-		return nullptr;
-
-	wchar_t *d = szTemp;
-	size_t cbLen = mir_wstrlen(pszWord);
-	if (cbLen > _countof(szTemp))
-		cbLen = _countof(szTemp)-1;
-
-	for (size_t i = 0; i < cbLen;) {
-		if (pszWord[i] == '%') {
-			switch (pszWord[i+1]) {
-			case '%':
-				*d++ = '%';
-				__fallthrough;
-
-			case 'b':
-			case 'u':
-			case 'i':
-			case 'B':
-			case 'U':
-			case 'I':
-			case 'r':
-			case 'C':
-			case 'F':
-				i += 2;
-				continue;
-
-			case 'c':
-			case 'f':
-				i += 4;
-				continue;
-			}
-		}
-
-		*d++ = pszWord[i++];
-	}
-	*d = 0;
-
-	return szTemp;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-
 HICON CHAT_MANAGER::getIcon(int iEventType) const
 {
 	if (iEventType & GC_EVENT_HIGHLIGHT)
@@ -343,7 +296,7 @@ BOOL DoPopup(SESSION_INFO *si, GCEVENT *gce)
 	if (!bTextUsed && lin.ptszText) {
 		if (!wszText.IsEmpty())
 			wszText.AppendChar(' ');
-		wszText.Append(RemoveFormatting(gce->pszText.w));
+		wszText.Append(gce->pszText.w);
 	}
 
 	g_chatApi.ShowPopup(si->hContact, si, g_chatApi.getIcon(gce->iType), si->pszModule, si->ptszName, dwColor, L"%s", wszText.c_str());
@@ -422,7 +375,7 @@ bool IsHighlighted(SESSION_INFO *si, GCEVENT *gce)
 	if (pMe == nullptr)
 		return FALSE;
 
-	wchar_t *buf = RemoveFormatting(NEWWSTR_ALLOCA(gce->pszText.w));
+	wchar_t *buf = NEWWSTR_ALLOCA(gce->pszText.w);
 
 	int iStart = 0;
 	CMStringW tszHighlightWords(g_Settings->pszHighlightWords);
@@ -543,7 +496,7 @@ BOOL LogToFile(SESSION_INFO *si, GCEVENT *gce)
 	if (!bTextUsed && lin.ptszText) {
 		if (!buf.IsEmpty())
 			buf.AppendChar(' ');
-		buf.Append(RemoveFormatting(gce->pszText.w));
+		buf.Append(gce->pszText.w);
 	}
 
 	// formatting strings don't need to be translatable - changing them via language pack would
@@ -734,19 +687,20 @@ void Chat_EventToGC(SESSION_INFO *si, MEVENT hDbEvent)
 	if (mir_strcmp(szProto, dbei.szModule) || !g_chatApi.DbEventIsShown(dbei) || !dbei.szUserId)
 		return;
 
-	CMStringW wszText(ptrW(dbei.getText()));
-	wszText.Replace(L"%", L"%%");
+	ptrW wszText(dbei.getText());
 
 	GCEVENT gce = { si, GC_EVENT_MESSAGE };
 	gce.dwFlags = GCEF_ADDTOLOG;
-	if (dbei.flags & DBEF_READ)
+	if (dbei.markedRead())
 		gce.dwFlags |= GCEF_NOTNOTIFY;
 
 	Utf2T wszUserId(dbei.szUserId);
-	if (g_chatApi.UM_FindUser(si, wszUserId))
+	if (auto *pUser = g_chatApi.UM_FindUser(si, wszUserId)) {
 		gce.pszUID.w = wszUserId;
-	else
-		gce.pszNick.w = wszUserId;
+		gce.pszNick.w = pUser->pszNick;
+	}
+	else gce.pszNick.w = wszUserId;
+
 	gce.pszText.w = wszText;
 	gce.time = dbei.timestamp;
 	gce.hEvent = hDbEvent;
@@ -755,9 +709,9 @@ void Chat_EventToGC(SESSION_INFO *si, MEVENT hDbEvent)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-MIR_APP_DLL(wchar_t*) Chat_GetGroup()
+MIR_APP_DLL(CMStringW) Chat_GetGroup()
 {
-	return db_get_wsa(0, CHAT_MODULE, "AddToGroup", TranslateT("Chat rooms"));
+	return db_get_wsm(0, CHAT_MODULE, "AddToGroup", TranslateT("Chat rooms"));
 }
 
 MIR_APP_DLL(void) Chat_SetGroup(const wchar_t *pwszGroupName)
@@ -766,20 +720,6 @@ MIR_APP_DLL(void) Chat_SetGroup(const wchar_t *pwszGroupName)
 		db_set_ws(0, CHAT_MODULE, "AddToGroup", pwszGroupName);
 	else
 		db_unset(0, CHAT_MODULE, "AddToGroup");
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-
-MIR_APP_DLL(wchar_t*) Chat_UnescapeTags(wchar_t *str_in)
-{
-	wchar_t *s = str_in, *d = str_in;
-	while (*s) {
-		if (*s == '%' && s[1] == '%')
-			s++;
-		*d++ = *s++;
-	}
-	*d = 0;
-	return str_in;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////

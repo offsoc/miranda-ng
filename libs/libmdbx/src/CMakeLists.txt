@@ -34,7 +34,7 @@
 ##  The Future will (be) Positive. Всё будет хорошо.
 ##
 
-cmake_minimum_required(VERSION 3.8.2)
+cmake_minimum_required(VERSION 3.11)
 
 cmake_policy(PUSH)
 cmake_policy(VERSION 3.8.2)
@@ -355,7 +355,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows" AND EXISTS "${MDBX_SOURCE_DIR}/ntdll.
     if(NOT MSVC_LIB_EXE)
       # Find lib.exe
       get_filename_component(CL_NAME ${CMAKE_C_COMPILER} NAME)
-      string(REPLACE cl.exe lib.exe MSVC_LIB_EXE ${CL_NAME})
+      string(REPLACE cl.exe lib.exe MSVC_LIB_EXE "${CL_NAME}")
       find_program(MSVC_LIB_EXE ${MSVC_LIB_EXE})
     endif()
     if(MSVC_LIB_EXE)
@@ -372,7 +372,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows" AND EXISTS "${MDBX_SOURCE_DIR}/ntdll.
     if(NOT DLLTOOL)
       # Find dlltool
       get_filename_component(GCC_NAME ${CMAKE_C_COMPILER} NAME)
-      string(REPLACE gcc dlltool DLLTOOL_NAME ${GCC_NAME})
+      string(REPLACE gcc dlltool DLLTOOL_NAME "${GCC_NAME}")
       find_program(DLLTOOL NAMES ${DLLTOOL_NAME})
     endif()
     if(DLLTOOL)

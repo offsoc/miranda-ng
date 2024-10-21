@@ -146,7 +146,7 @@ int CSkypeProto::OnGroupChatEventHook(WPARAM, LPARAM lParam)
 	case GC_USER_NICKLISTMENU:
 		switch (gch->dwData) {
 		case 10:
-			PushRequest(new KickUserRequest(chat_id, user_id));
+			KickChatUser(chat_id, user_id);
 			break;
 		case 30:
 			PushRequest(new InviteUserToChatRequest(chat_id, user_id, "Admin"));
@@ -218,9 +218,7 @@ INT_PTR CSkypeProto::OnLeaveChatRoom(WPARAM hContact, LPARAM)
 		Chat_Control(si, SESSION_OFFLINE);
 		Chat_Terminate(si);
 
-		PushRequest(new KickUserRequest(_T2A(idT), m_szSkypename));
-
-		db_delete_contact(hContact, CDF_FROM_SERVER);
+		db_delete_contact(hContact, CDF_DEL_CONTACT);
 	}
 	return 0;
 }
@@ -320,26 +318,38 @@ bool CSkypeProto::OnChatEvent(const JSONNode &node)
 		return true;
 	}
 
+	// some slack, let's drop it
+	if (messageType == "ThreadActivity/HistoryDisclosedUpdate" || messageType == "ThreadActivity/JoiningEnabledUpdate")
+		return true;
+
 	return false;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 void CSkypeProto::SendChatMessage(SESSION_INFO *si, const wchar_t *tszMessage)
 {
 	if (!IsOnline())
 		return;
 
-	wchar_t *buf = NEWWSTR_ALLOCA(tszMessage);
-	rtrimw(buf);
-	Chat_UnescapeTags(buf);
+	CMStringA szMessage(ptrA(mir_utf8encodeW(tszMessage)));
+	szMessage.TrimRight();
+	bool bRich = AddBbcodes(szMessage);
 
-	T2Utf chat_id(si->ptszID);
-	ptrA szMessage(mir_utf8encodeW(buf));
+	CMStringA szUrl = "/users/ME/conversations/" + mir_urlEncode(T2Utf(si->ptszID)) + "/messages";
+	AsyncHttpRequest *pReq = new AsyncHttpRequest(REQUEST_POST, HOST_DEFAULT, szUrl, &CSkypeProto::OnMessageSent);
 
+	JSONNode node;
+	node << CHAR_PARAM("clientmessageid", CMStringA(::FORMAT, "%llu000", (ULONGLONG)time(0)))
+		<< CHAR_PARAM("messagetype", bRich ? "RichText" : "Text") << CHAR_PARAM("contenttype", "text") << CHAR_PARAM("content", szMessage);
 	if (strncmp(szMessage, "/me ", 4) == 0)
-		PushRequest(new SendChatActionRequest(chat_id, time(0), szMessage));
-	else
-		PushRequest(new SendChatMessageRequest(chat_id, time(0), szMessage));
+		node << INT_PARAM("skypeemoteoffset", 4);
+	pReq->m_szParam = node.write().c_str();
+	
+	PushRequest(pReq);
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 void CSkypeProto::OnGetChatMembers(MHttpResponse *response, AsyncHttpRequest *pRequest)
 {
@@ -469,6 +479,11 @@ void CSkypeProto::RemoveChatContact(SESSION_INFO *si, const wchar_t *id, bool is
 	}
 
 	Chat_Event(&gce);
+}
+
+void CSkypeProto::KickChatUser(const char *chatId, const char *userId)
+{
+	PushRequest(new AsyncHttpRequest(REQUEST_DELETE, HOST_DEFAULT, "/threads/" + mir_urlEncode(chatId) + "/members/" + mir_urlEncode(userId)));
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////

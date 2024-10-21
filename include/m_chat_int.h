@@ -43,8 +43,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define CHAT_MODULE "Chat"
 #define CHATFONT_MODULE "ChatFonts"
 
-#define GC_FAKE_EVENT MEVENT(0xBABABEDA)
-
 #define GCW_TABROOM            10
 #define GCW_TABPRIVMSG         11
 
@@ -85,13 +83,13 @@ struct USERINFO : public MZeroedObject, public MNonCopyable
 
 	wchar_t* pszUID;
 	wchar_t* pszNick;
-	uint32_t iSignature = GC_FAKE_EVENT;
+	uint32_t iSignature = 0xDEADBEEF;
 	uint16_t Status;
 	uint16_t ContactStatus;
 	int      iStatusEx;
 
 	bool isValid() const {
-		return iSignature == GC_FAKE_EVENT;
+		return iSignature == 0xDEADBEEF;
 	}
 };
 
@@ -103,8 +101,6 @@ struct MIR_APP_EXPORT GCModuleInfoBase : public MZeroedObject, public MNonCopyab
 	char*    pszModule;
 	wchar_t* ptszModDispName;
 	
-	bool     bBold, bItalics, bUnderline;
-	bool     bColor, bBkgColor;
 	bool     bChanMgr, bAckMsg, bDatabase, bPersistent;
 	
 	int      iMaxText;
@@ -198,6 +194,7 @@ struct MIR_APP_EXPORT SESSION_INFO : public MZeroedObject, public MNonCopyable
 	}
 
 	const char* getSoundName(int iEventType) const;
+	void markRead(bool bForce = false);
 };
 
 struct GlobalLogSettingsBase
@@ -270,7 +267,6 @@ struct CHAT_MANAGER
 {
 	CHAT_MANAGER();
 
-	SESSION_INFO* (*SM_CreateSession)(void);
 	HICON         (*SM_GetStatusIcon)(SESSION_INFO *si, USERINFO * ui);
 	int           (*SM_GetCount)(const char *pszModule);
 	SESSION_INFO* (*SM_FindSessionByIndex)(const char *pszModule, int iItem);
@@ -293,9 +289,6 @@ struct CHAT_MANAGER
 	USERINFO*     (*UM_TakeStatus)(SESSION_INFO *si, const wchar_t *pszUID, uint16_t status);
 	wchar_t*      (*UM_FindUserAutoComplete)(SESSION_INFO *si, const wchar_t* pszOriginal, const wchar_t* pszCurrent);
 
-	BOOL          (*SetOffline)(MCONTACT hContact, BOOL bHide);
-	BOOL          (*SetAllOffline)(BOOL bHide, const char *pszModule);
-
 	void          (*LoadMsgDlgFont)(int i, LOGFONT *lf, COLORREF *color);
 	wchar_t*      (*MakeTimeStamp)(wchar_t *pszStamp, time_t time);
 
@@ -307,10 +300,8 @@ struct CHAT_MANAGER
 	char*         (*Log_SetStyle)(int style);
 
 	bool          (*IsHighlighted)(SESSION_INFO *si, GCEVENT *pszText);
-	wchar_t*      (*RemoveFormatting)(const wchar_t *pszText);
 	void          (*ReloadSettings)(void);
 
-	int           (*DoRtfToTags)(CMStringW &pszText, int iNumColors, COLORREF *pColors);
 	void          (*CreateNick)(const SESSION_INFO *si, const LOGINFO *lin, CMStringW &dest);
 
 	int logPixelSY, logPixelSX;
@@ -398,6 +389,7 @@ namespace Chat
 		bFilterEnabled,
 		bTopicOnClist,
 		bPopupOnJoin,
+		bUseGroup,
 		bDoubleClick4Privat,
 		bShowContactStatus,
 		bContactStatusFirst,

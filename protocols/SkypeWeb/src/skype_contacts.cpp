@@ -87,9 +87,9 @@ MCONTACT CSkypeProto::AddContact(const char *skypeId, const char *nick, bool isT
 	setString(hContact, SKYPE_SETTINGS_ID, skypeId);
 	setUString(hContact, "Nick", (nick) ? nick : GetSkypeNick(skypeId));
 
-	if (wstrCListGroup) {
-		Clist_GroupCreate(0, wstrCListGroup);
-		Clist_SetGroup(hContact, wstrCListGroup);
+	if (m_wstrCListGroup) {
+		Clist_GroupCreate(0, m_wstrCListGroup);
+		Clist_SetGroup(hContact, m_wstrCListGroup);
 	}
 
 	setByte(hContact, "Auth", 1);
@@ -151,10 +151,20 @@ void CSkypeProto::LoadContactList(MHttpResponse *response, AsyncHttpRequest*)
 			continue;
 
 		MCONTACT hContact = AddContact(szSkypeId, nullptr);
+		if (szSkypeId == "28:e7a9407c-2467-4a04-9546-70081f4ea80d")
+			m_hMyContact = hContact;
 
 		std::string displayName = item["display_name"].as_string();
-		if (!displayName.empty())
+		if (!displayName.empty()) {
+			if (m_hMyContact == hContact) {
+				displayName = getMStringU("Nick");
+				displayName += " ";
+				displayName += TranslateU("(You)");
+
+				setWord(hContact, "Status", ID_STATUS_ONLINE);
+			}
 			setUString(hContact, "Nick", displayName.c_str());
+		}
 
 		if (item["authorized"].as_bool()) {
 			delSetting(hContact, "Auth");
@@ -168,9 +178,9 @@ void CSkypeProto::LoadContactList(MHttpResponse *response, AsyncHttpRequest*)
 			delSetting(hContact, "IsBlocked");
 
 		ptrW wszGroup(Clist_GetGroup(hContact));
-		if (wszGroup == nullptr && wstrCListGroup) {
-			Clist_GroupCreate(0, wstrCListGroup);
-			Clist_SetGroup(hContact, wstrCListGroup);
+		if (wszGroup == nullptr && m_wstrCListGroup) {
+			Clist_GroupCreate(0, m_wstrCListGroup);
+			Clist_SetGroup(hContact, m_wstrCListGroup);
 		}
 
 		auto &profile = item["profile"];
@@ -230,20 +240,25 @@ INT_PTR CSkypeProto::OnGrantAuth(WPARAM hContact, LPARAM)
 	if (hContact == INVALID_CONTACT_ID)
 		return 1;
 
-	PushRequest(new AuthAcceptRequest(this, getId(hContact)));
+	PushRequest(new AuthAcceptRequest(getId(hContact)));
 	return 0;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 bool CSkypeProto::OnContactDeleted(MCONTACT hContact, uint32_t flags)
 {
 	if (IsOnline() && hContact && (flags & CDF_DEL_CONTACT)) {
+		CMStringA szId(getId(hContact));
 		if (isChatRoom(hContact))
-			PushRequest(new DestroyChatroomRequest(getId(hContact)));
+			KickChatUser(szId, m_szOwnSkypeId);
 		else
-			PushRequest(new DeleteContactRequest(this, getId(hContact)));
+			PushRequest(new AsyncHttpRequest(REQUEST_DELETE, HOST_CONTACTS, "/users/SELF/contacts/" + mir_urlEncode(szId)));
 	}
 	return true;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 INT_PTR CSkypeProto::BlockContact(WPARAM hContact, LPARAM)
 {

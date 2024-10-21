@@ -17,19 +17,21 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #include "stdafx.h"
 
-CSkypeProto::CSkypeProto(const char* protoName, const wchar_t* userName) :
+CSkypeProto::CSkypeProto(const char *protoName, const wchar_t *userName) :
 	PROTO<CSkypeProto>(protoName, userName),
 	m_PopupClasses(1),
 	m_OutMessages(3, PtrKeySortT),
 	m_impl(*this),
 	m_requests(1),
-	bAutoHistorySync(this, "AutoSync", true),
-	bMarkAllAsUnread(this, "MarkMesUnread", true),
-	bUseHostnameAsPlace(this, "UseHostName", true),
-	bUseBBCodes(this, "UseBBCodes", true),
-	bUseServerTime(this, "UseServerTime", false),
-	wstrCListGroup(this, SKYPE_SETTINGS_GROUP, L"Skype"),
-	wstrPlace(this, "Place", L"")
+	m_bAutoHistorySync(this, "AutoSync", true),
+	m_bUseHostnameAsPlace(this, "UseHostName", true),
+	m_bUseBBCodes(this, "UseBBCodes", true),
+	m_bUseServerTime(this, "UseServerTime", false),
+	m_wstrCListGroup(this, SKYPE_SETTINGS_GROUP, L"Skype"),
+	m_wstrPlace(this, "Place", L""),
+	m_iMood(this, "Mood", 0),
+	m_wstrMoodEmoji(this, "MoodEmoji", L""),
+	m_wstrMoodMessage(this, "XStatusMsg", L"")
 {
 	NETLIBUSER nlu = {};
 	nlu.flags = NUF_OUTGOING | NUF_INCOMING | NUF_HTTPCONNS | NUF_UNICODE;
@@ -67,6 +69,16 @@ CSkypeProto::~CSkypeProto()
 	UninitPopups();
 }
 
+void CSkypeProto::OnEventDeleted(MCONTACT hContact, MEVENT hDbEvent, int flags)
+{
+	if (!hContact || !(flags & CDF_DEL_HISTORY))
+		return;
+
+	DB::EventInfo dbei(hDbEvent, false);
+	if (dbei.szId)
+		PushRequest(new DeleteMessageRequest(this, getId(hContact), dbei.szId));
+}
+
 void CSkypeProto::OnModulesLoaded()
 {
 	setAllContactStatuses(ID_STATUS_OFFLINE, false);
@@ -92,45 +104,14 @@ INT_PTR CSkypeProto::GetCaps(int type, MCONTACT)
 	case PFLAGNUM_3:
 		return PF2_ONLINE | PF2_INVISIBLE | PF2_SHORTAWAY | PF2_HEAVYDND;
 	case PFLAGNUM_4:
-		return PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_AVATARS | PF4_IMSENDOFFLINE | PF4_OFFLINEFILES | PF4_SERVERMSGID;
+		return PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_AVATARS | PF4_IMSENDOFFLINE | PF4_OFFLINEFILES | PF4_SERVERMSGID | PF4_SERVERFORMATTING;
 	case PFLAG_UNIQUEIDTEXT:
 		return (INT_PTR)TranslateT("Skypename");
 	}
 	return 0;
 }
 
-int CSkypeProto::SetAwayMsg(int, const wchar_t *msg)
-{
-	if (IsOnline())
-		PushRequest(new SetStatusMsgRequest(msg ? T2Utf(msg) : ""));
-	return 0;
-}
-
 /////////////////////////////////////////////////////////////////////////////////////////
-
-void CSkypeProto::OnReceiveAwayMsg(MHttpResponse *response, AsyncHttpRequest *pRequest)
-{
-	JsonReply reply(response);
-	if (reply.error())
-		return;
-
-	MCONTACT hContact = DWORD_PTR(pRequest->pUserInfo);
-	auto &root = reply.data();
-	if (JSONNode &mood = root["mood"]) {
-		CMStringW str = mood.as_mstring();
-		ProtoBroadcastAck(hContact, ACKTYPE_AWAYMSG, ACKRESULT_SUCCESS, (HANDLE)1, (LPARAM)str.c_str());
-	}
-	else {
-		ProtoBroadcastAck(hContact, ACKTYPE_AWAYMSG, ACKRESULT_SUCCESS, (HANDLE)1, 0);
-	}
-}
-
-HANDLE CSkypeProto::GetAwayMsg(MCONTACT hContact)
-{
-	auto *pReq = new GetProfileRequest(this, hContact);
-	pReq->m_pFunc = &CSkypeProto::OnReceiveAwayMsg;
-	return (HANDLE)1;
-}
 
 MCONTACT CSkypeProto::AddToList(int, PROTOSEARCHRESULT *psr)
 {
@@ -170,7 +151,7 @@ int CSkypeProto::Authorize(MEVENT hDbEvent)
 	if (hContact == INVALID_CONTACT_ID)
 		return 1;
 
-	PushRequest(new AuthAcceptRequest(this, getId(hContact)));
+	PushRequest(new AuthAcceptRequest(getId(hContact)));
 	return 0;
 }
 
@@ -180,7 +161,7 @@ int CSkypeProto::AuthDeny(MEVENT hDbEvent, const wchar_t*)
 	if (hContact == INVALID_CONTACT_ID)
 		return 1;
 
-	PushRequest(new AuthDeclineRequest(this, getId(hContact)));
+	PushRequest(new AuthDeclineRequest(getId(hContact)));
 	return 0;
 }
 

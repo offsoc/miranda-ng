@@ -96,6 +96,7 @@ for /f %%a in ('dir plugins\*.dll /B /L') do (
 		rd /S /Q Libs
 		ren Libs2 Libs
 	)
+
 	rem now adding plugin itself into archive
 	%ZipIt% "%Arch%\Plugins\%%~na.zip" %%a
 )

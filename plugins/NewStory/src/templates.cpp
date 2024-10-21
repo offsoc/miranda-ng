@@ -48,14 +48,16 @@ static wchar_t* font2html(LOGFONTA &lf, wchar_t *dest)
 static void AppendImage(CMStringW &buf, const CMStringW &wszUrl, const CMStringW &wszDescr, ItemData *pItem, UINT uMaxHeight = 300)
 {
 	if (g_plugin.bShowPreview) {
+		pItem->pOwner->webPage.load_image(wszUrl, pItem);
+
 		int iHeight = uMaxHeight;
-		pItem->pOwner->webPage.load_image(wszUrl);
-		if (Bitmap *pImage = pItem->pOwner->webPage.find_image(wszUrl))
+		if (auto *pImage = pItem->pOwner->webPage.find_image(wszUrl)) {
 			if (pImage->GetHeight() < uMaxHeight)
 				iHeight = pImage->GetHeight();
 
-		buf.AppendFormat(L"<img style=\"height: %d;\" src=\"%s\" title=\"%s\" alt=\"%s\"/><br>",
-			iHeight, wszUrl.c_str(), wszDescr.c_str(), wszDescr.c_str());
+			buf.AppendFormat(L"<img style=\"height: %dpx;\" src=\"%s\"/><br>", iHeight, wszUrl.c_str());
+		}
+		else buf.AppendFormat(L"<img src=\"%s\"/><br>", wszUrl.c_str());
 	}
 	else buf.AppendFormat(L"<a class=\"link\" href=\"%s\">%s</a>", wszUrl.c_str(), wszDescr.c_str());
 }
@@ -189,14 +191,27 @@ static void AppendString(CMStringW &buf, const wchar_t *p, ItemData *pItem)
 				}
 				else p--;
 			}
-			else if (!wcsncmp(p, L"code]", 5)) {
-				p += 5;
+			else if (!wcsncmp(p, L"color=", 6)) {
+				p += 6;
 
-				if (auto *p1 = wcsstr(p, L"[/code]")) {
-					CMStringW wszUrl(p, int(p1 - p));
-					buf.AppendFormat(L"<pre>%s</pre>", wszUrl.c_str());
-					p = p1 + 6;
+				if (auto *p1 = wcschr(p, ']')) {
+					CMStringW wszColor(p, int(p1 - p));
+					buf.AppendFormat(L"<font color=#%06X>", color2html(wcstoul(wszColor, 0, 16)));
+					p = p1;
 				}
+				else p--;
+			}
+			else if (!wcsncmp(p, L"/color]", 7)) {
+				p += 6;
+				buf.AppendFormat(L"</font>");
+			}
+			else if (!wcsncmp(p, L"code]", 5)) {
+				p += 4;
+				buf.AppendFormat(*pEnd ? L"</pre>" : L"<pre>");
+			}
+			else if (!wcsncmp(p, L"quote]", 6)) {
+				p += 5;
+				buf.AppendFormat(*pEnd ? L"</div>" : L"<div class=\"quote\">" );
 			}
 			else {
 				buf.AppendChar('[');
@@ -223,8 +238,7 @@ CMStringW ItemData::formatHtml(const wchar_t *pwszStr)
 	str.AppendFormat(L"body {margin: 0px; text-align: left; %s; color: NSText; overflow: auto;}\n", font2html(F.lf, szFont));
 	str.AppendFormat(L".nick {color: #%06X }\n", color2html(g_colorTable[(dbe.flags & DBEF_SENT) ? COLOR_OUTNICK : COLOR_INNICK].cl));
 	str.AppendFormat(L".link {color: #%06X }\n", color2html(g_colorTable[COLOR_LINK].cl));
-	if (qtext)
-		str.AppendFormat(L".quote {border-left: 4px solid #%06X; padding-left: 8px; }\n", color2html(g_colorTable[COLOR_QUOTE].cl));
+	str.AppendFormat(L".quote {border-left: 4px solid #%06X; padding-left: 8px; }\n", color2html(g_colorTable[COLOR_QUOTE].cl));
 
 	str.Append(L"</style></head><body class=\"body\">\n");
 

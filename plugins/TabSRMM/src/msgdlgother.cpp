@@ -186,257 +186,6 @@ void CMsgDialog::DetermineMinHeight()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
-// convert rich edit code to bbcode (if wanted). Otherwise, strip all RTF formatting
-// tags and return plain text
-
-static wchar_t tszRtfBreaks[] = L" \\\n\r";
-
-static void CreateColorMap(CMStringW &Text, int iCount, COLORREF *pSrc, int *pDst)
-{
-	const wchar_t *pszText = Text;
-	int iIndex = 1;
-
-	static const wchar_t *lpszFmt = L"\\red%[^ \x5b\\]\\green%[^ \x5b\\]\\blue%[^ \x5b;];";
-	wchar_t szRed[10], szGreen[10], szBlue[10];
-
-	const wchar_t *p1 = wcsstr(pszText, L"\\colortbl");
-	if (!p1)
-		return;
-
-	const wchar_t *pEnd = wcschr(p1, '}');
-
-	const wchar_t *p2 = wcsstr(p1, L"\\red");
-
-	for (int i = 0; i < iCount; i++)
-		pDst[i] = -1;
-
-	while (p2 && p2 < pEnd) {
-		if (swscanf(p2, lpszFmt, &szRed, &szGreen, &szBlue) > 0) {
-			for (int i = 0; i < iCount; i++) {
-				if (pSrc[i] == RGB(_wtoi(szRed), _wtoi(szGreen), _wtoi(szBlue)))
-					pDst[i] = iIndex;
-			}
-		}
-		iIndex++;
-		p1 = p2;
-		p1++;
-
-		p2 = wcsstr(p1, L"\\red");
-	}
-}
-
-static int RtfColorToIndex(int iNumColors, int *pIndex, int iCol)
-{
-	for (int i = 0; i < iNumColors; i++)
-		if (pIndex[i] == iCol)
-			return i;
-
-	return -1;
-}
-
-BOOL CMsgDialog::DoRtfToTags(CMStringW &pszText) const
-{
-	if (pszText.IsEmpty())
-		return FALSE;
-
-	// used to filter out attributes which are already set for the default message input area font
-	auto &lf = m_pContainer->m_theme.logFonts[MSGFONTID_MESSAGEAREA];
-
-	// create an index of colors in the module and map them to
-	// corresponding colors in the RTF color table
-	int iNumColors = Utils::rtf_clrs.getCount();
-	int *pIndex = (int *)_alloca(iNumColors * sizeof(int));
-	COLORREF *pColors = (COLORREF *)_alloca(iNumColors * sizeof(COLORREF));
-	for (int i = 0; i < iNumColors; i++)
-		pColors[i] = Utils::rtf_clrs[i].clr;
-	CreateColorMap(pszText, iNumColors, pColors, pIndex);
-
-	// scan the file for rtf commands and remove or parse them
-	int idx = pszText.Find(L"\\pard");
-	if (idx == -1) {
-		if ((idx = pszText.Find(L"\\ltrpar")) == -1)
-			return FALSE;
-		idx += 7;
-	}
-	else idx += 5;
-
-	MODULEINFO *mi = (isChat()) ? m_si->pMI : nullptr;
-
-	bool bInsideColor = false, bInsideUl = false;
-	CMStringW res;
-
-	// iterate through all characters, if rtf control character found then take action
-	for (const wchar_t *p = pszText.GetString() + idx; *p;) {
-		switch (*p) {
-		case '\\':
-			if (p[1] == '\\' || p[1] == '{' || p[1] == '}') { // escaped characters
-				res.AppendChar(p[1]);
-				p += 2; break;
-			}
-			if (p[1] == '~') { // non-breaking space
-				res.AppendChar(0xA0);
-				p += 2; break;
-			}
-
-			if (!wcsncmp(p, L"\\cf", 3)) { // foreground color
-				int iCol = _wtoi(p + 3);
-				int iInd = RtfColorToIndex(iNumColors, pIndex, iCol);
-
-				if (iCol > 0) {
-					if (isChat()) {
-						if (mi && mi->bColor) {
-							if (iInd >= 0) {
-								if (!(res.IsEmpty() && m_pContainer->m_theme.fontColors[MSGFONTID_MESSAGEAREA] == pColors[iInd]))
-									res.AppendFormat(L"%%c%u", iInd);
-							}
-							else if (!res.IsEmpty())
-								res.Append(L"%%C");
-						}
-					}
-					else res.AppendFormat((iInd >= 0) ? (bInsideColor ? L"[/color][color=%s]" : L"[color=%s]") : (bInsideColor ? L"[/color]" : L""), Utils::rtf_clrs[iInd].szName);
-				}
-
-				bInsideColor = iInd >= 0;
-			}
-			else if (!wcsncmp(p, L"\\highlight", 10)) { // background color
-				if (isChat()) {
-					if (mi && mi->bBkgColor) {
-						int iInd = RtfColorToIndex(iNumColors, pIndex, _wtoi(p + 10));
-						if (iInd >= 0) {
-							// if the entry field is empty & the color passed is the back color, skip it
-							if (!(res.IsEmpty() && m_pContainer->m_theme.inputbg == pColors[iInd]))
-								res.AppendFormat(L"%%f%u", iInd);
-						}
-						else if (!res.IsEmpty())
-							res.AppendFormat(L"%%F");
-					}
-				}
-			}
-			else if (!wcsncmp(p, L"\\line", 5)) { // soft line break;
-				res.AppendChar('\n');
-			}
-			else if (!wcsncmp(p, L"\\endash", 7)) {
-				res.AppendChar(0x2013);
-			}
-			else if (!wcsncmp(p, L"\\emdash", 7)) {
-				res.AppendChar(0x2014);
-			}
-			else if (!wcsncmp(p, L"\\bullet", 7)) {
-				res.AppendChar(0x2022);
-			}
-			else if (!wcsncmp(p, L"\\ldblquote", 10)) {
-				res.AppendChar(0x201C);
-			}
-			else if (!wcsncmp(p, L"\\rdblquote", 10)) {
-				res.AppendChar(0x201D);
-			}
-			else if (!wcsncmp(p, L"\\lquote", 7)) {
-				res.AppendChar(0x2018);
-			}
-			else if (!wcsncmp(p, L"\\rquote", 7)) {
-				res.AppendChar(0x2019);
-			}
-			else if (!wcsncmp(p, L"\\b", 2)) { //bold
-				if (isChat()) {
-					if (mi && mi->bBold)
-						res.Append((p[2] != '0') ? L"%b" : L"%B");
-				}
-				else {
-					if (!(lf.lfWeight == FW_BOLD)) // only allow bold if the font itself isn't a bold one, otherwise just strip it..
-						if (m_bSendFormat)
-							res.Append((p[2] != '0') ? L"[b]" : L"[/b]");
-				}
-			}
-			else if (!wcsncmp(p, L"\\i", 2)) { // italics
-				if (isChat()) {
-					if (mi && mi->bItalics)
-						res.Append((p[2] != '0') ? L"%i" : L"%I");
-				}
-				else {
-					if (!lf.lfItalic && m_bSendFormat)
-						res.Append((p[2] != '0') ? L"[i]" : L"[/i]");
-				}
-			}
-			else if (!wcsncmp(p, L"\\strike", 7)) { // strike-out
-				if (!lf.lfStrikeOut && m_bSendFormat)
-					res.Append((p[7] != '0') ? L"[s]" : L"[/s]");
-			}
-			else if (!wcsncmp(p, L"\\ul", 3)) { // underlined
-				if (isChat()) {
-					if (mi && mi->bUnderline)
-						res.Append((p[3] != '0') ? L"%u" : L"%U");
-				}
-				else {
-					if (!lf.lfUnderline && m_bSendFormat) {
-						if (p[3] == 0 || wcschr(tszRtfBreaks, p[3])) {
-							res.Append(L"[u]");
-							bInsideUl = true;
-						}
-						else if (!wcsncmp(p + 3, L"none", 4)) {
-							if (bInsideUl)
-								res.Append(L"[/u]");
-							bInsideUl = false;
-						}
-					}
-				}
-			}
-			else if (!wcsncmp(p, L"\\tab", 4)) { // tab
-				res.AppendChar('\t');
-			}
-			else if (p[1] == '\'') { // special character
-				if (p[2] != ' ' && p[2] != '\\') {
-					wchar_t tmp[10];
-
-					if (p[3] != ' ' && p[3] != '\\') {
-						wcsncpy(tmp, p + 2, 3);
-						tmp[3] = 0;
-					}
-					else {
-						wcsncpy(tmp, p + 2, 2);
-						tmp[2] = 0;
-					}
-
-					// convert string containing char in hex format to int.
-					wchar_t *stoppedHere;
-					res.AppendChar(wcstol(tmp, &stoppedHere, 16));
-				}
-			}
-
-			p++; // skip initial slash
-			p += wcscspn(p, tszRtfBreaks);
-			if (*p == ' ')
-				p++;
-			break;
-
-		case '{': // other RTF control characters
-		case '}':
-			p++;
-			break;
-
-		case '%': // double % for stupid chat engine
-			if (isChat())
-				res.Append(L"%%");
-			else
-				res.AppendChar(*p);
-			p++;
-			break;
-
-		default: // other text that should not be touched
-			res.AppendChar(*p++);
-			break;
-		}
-	}
-
-	if (bInsideColor && !isChat())
-		res.Append(L"[/color]");
-	if (bInsideUl)
-		res.Append(L"[/u]");
-
-	pszText = res;
-	return TRUE;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
 
 void CMsgDialog::DrawNickList(USERINFO *ui, DRAWITEMSTRUCT *dis)
 {
@@ -707,6 +456,15 @@ bool CMsgDialog::GetFirstEvent()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+void CMsgDialog::GetInputFont(LOGFONTW &lf, COLORREF &bg, COLORREF &fg) const
+{
+	lf = m_pContainer->m_theme.logFonts[MSGFONTID_MESSAGEAREA];
+	fg = m_pContainer->m_theme.fontColors[MSGFONTID_MESSAGEAREA];
+	bg = m_pContainer->m_theme.inputbg;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
 // returns != 0 when one of the installed keyboard layouts belongs to an rtl language
 // used to find out whether we need to configure the message input box for bidirectional mode
 
@@ -759,7 +517,7 @@ void CMsgDialog::FlashOnClist(MEVENT hEvent, const DB::EventInfo &dbei)
 			if (!mir_strcmp(cle->pszService, MS_MSG_READMESSAGE))
 				return;
 		}
-		
+
 		CLISTEVENT cle = {};
 		cle.hContact = m_hContact;
 		cle.hDbEvent = hEvent;
@@ -918,7 +676,7 @@ ok:
 				beginmark++;
 				continue;
 			}
-			
+
 			int index = 0;
 			switch (endmarker) {
 			case '*':
@@ -1121,7 +879,7 @@ bool CMsgDialog::GetAvatarVisibility()
 		switch (bAvatarMode) {
 		case 0: // globally on
 			m_bShowAvatar = true;
-		LBL_Check:
+LBL_Check:
 			if (!m_hwndContactPic)
 				m_hwndContactPic = CreateWindowEx(WS_EX_TOPMOST, AVATAR_CONTROL_CLASS, L"", WS_VISIBLE | WS_CHILD, 1, 1, 1, 1, GetDlgItem(m_hwnd, IDC_CONTACTPIC), (HMENU)nullptr, nullptr, nullptr);
 			break;
@@ -1790,7 +1548,10 @@ void CMsgDialog::RemakeLog()
 	m_szMicroLf[0] = 0;
 	m_lastEventTime = 0;
 	m_iLastEventType = -1;
-	StreamEvents(m_hDbEventFirst, -1, 0);
+	
+	CSuper::RemakeLog();
+	
+	DM_ScrollToBottom(0, 0);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -1846,7 +1607,7 @@ void CMsgDialog::SaveAvatarToFile(HBITMAP hbm, int isOwnPic)
 	ofn.lpstrInitialDir = szFinalPath;
 	ofn.nMaxFile = MAX_PATH;
 	ofn.nMaxFileTitle = MAX_PATH;
-	ofn.lCustData = (LPARAM)& setView;
+	ofn.lCustData = (LPARAM)&setView;
 	if (GetSaveFileName(&ofn)) {
 		if (PathFileExists(szFinalFilename))
 			if (MessageBox(nullptr, TranslateT("The file exists. Do you want to overwrite it?"), TranslateT("Save contact picture"), MB_YESNO | MB_ICONQUESTION) == IDNO)
@@ -2125,14 +1886,14 @@ void CMsgDialog::ShowPopupMenu(const CCtrlBase &pCtrl, POINT pt)
 	mwpd.hMenu = hSubMenu;
 	mwpd.selection = 0;
 	mwpd.pt = pt;
-	NotifyEventHooks(g_chatApi.hevWinPopup, 0, (LPARAM)& mwpd);
+	NotifyEventHooks(g_chatApi.hevWinPopup, 0, (LPARAM)&mwpd);
 
 	int iSelection = TrackPopupMenu(hSubMenu, TPM_RETURNCMD, pt.x, pt.y, 0, m_hwnd, nullptr);
 
 	// Second notification
 	mwpd.selection = iSelection;
 	mwpd.uType = MSG_WINDOWPOPUP_SELECTED;
-	NotifyEventHooks(g_chatApi.hevWinPopup, 0, (LPARAM)& mwpd);
+	NotifyEventHooks(g_chatApi.hevWinPopup, 0, (LPARAM)&mwpd);
 
 	switch (iSelection) {
 	case IDM_COPY:
@@ -2152,10 +1913,10 @@ void CMsgDialog::ShowPopupMenu(const CCtrlBase &pCtrl, POINT pt)
 			pCtrl.SendMsg(EM_PASTESPECIAL, (iSelection == IDM_PASTE) ? CF_UNICODETEXT : 0, 0);
 		break;
 	case IDM_QUOTE:
-		SendMessage(m_hwnd, WM_COMMAND, IDC_QUOTE, 0);
+		m_btnQuote.Click();
 		break;
 	case IDM_SELECTALL:
-		pCtrl.SendMsg(EM_EXSETSEL, 0, (LPARAM)& all);
+		pCtrl.SendMsg(EM_EXSETSEL, 0, (LPARAM)&all);
 		break;
 	case IDM_CLEAR:
 		tabClearLog();
@@ -2317,7 +2078,7 @@ bool CMsgDialog::TabAutoComplete()
 	GETTEXTEX gt = { 0 };
 	gt.codepage = 1200;
 	gt.flags = GTL_DEFAULT | GTL_PRECISE;
-	int iLen = m_message.SendMsg(EM_GETTEXTLENGTHEX, (WPARAM)& gt, 0);
+	int iLen = m_message.SendMsg(EM_GETTEXTLENGTHEX, (WPARAM)&gt, 0);
 	if (iLen <= 0)
 		return false;
 
@@ -2326,7 +2087,7 @@ bool CMsgDialog::TabAutoComplete()
 
 	gt.flags = GT_DEFAULT;
 	gt.cb = (iLen + 9) * sizeof(wchar_t);
-	m_message.SendMsg(EM_GETTEXTEX, (WPARAM)& gt, (LPARAM)pszText);
+	m_message.SendMsg(EM_GETTEXTEX, (WPARAM)&gt, (LPARAM)pszText);
 
 	if (m_wszSearchResult != nullptr) {
 		int cbResult = (int)mir_wstrlen(m_wszSearchResult);
@@ -2352,7 +2113,7 @@ LBL_SkipEnd:
 		if (topicStart > 5 && wcsstr(&pszText[topicStart - 6], L"/topic") == &pszText[topicStart - 6])
 			isTopic = true;
 	}
-	
+
 	if (m_wszSearchQuery == nullptr) {
 		m_wszSearchQuery = mir_wstrndup(pszText + start, end - start);
 		m_wszSearchResult = mir_wstrdup(m_wszSearchQuery);
@@ -2832,10 +2593,7 @@ void CMsgDialog::UpdateWindowState(UINT msg)
 	if (m_si) {
 		m_hTabIcon = m_hTabStatusIcon;
 
-		if (db_get_w(m_si->hContact, m_si->pszModule, "ApparentMode", 0) != 0)
-			db_set_w(m_si->hContact, m_si->pszModule, "ApparentMode", 0);
-		if (Clist_GetEvent(m_si->hContact, 0))
-			Clist_RemoveEvent(m_si->hContact, GC_FAKE_EVENT);
+		m_si->markRead(true);
 
 		UpdateTitle();
 		m_hTabIcon = m_hTabStatusIcon;

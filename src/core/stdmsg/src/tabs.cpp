@@ -143,6 +143,7 @@ CTabbedWindow::CTabbedWindow() :
 	m_tab(this, IDC_TAB)
 {
 	SetMinSize(450, 350);
+	m_autoClose = CLOSE_ON_OK;
 }
 
 bool CTabbedWindow::OnInitDialog()
@@ -266,7 +267,7 @@ void CTabbedWindow::AddPage(SESSION_INFO *si, int insertAt)
 		if (!IsWindowVisible(m_hwnd))
 			Show(SW_SHOW);
 
-		CMsgDialog *pDlg = new CMsgDialog(this, si);
+		CMsgDialog *pDlg = new CMsgDialog(this, si->hContact);
 		pDlg->SetParent(m_hwnd);
 		m_tab.AddPage(szTemp, nullptr, pDlg);
 		m_tab.ActivatePage(m_tab.GetCount() - 1);
@@ -466,17 +467,7 @@ void CTabbedWindow::TabClicked()
 
 	SESSION_INFO *si = pDlg->m_si;
 	if (si) {
-		if (si->wState & STATE_TALK) {
-			si->wState &= ~STATE_TALK;
-			db_set_w(si->hContact, si->pszModule, "ApparentMode", 0);
-		}
-
-		if (si->wState & GC_EVENT_HIGHLIGHT) {
-			si->wState &= ~GC_EVENT_HIGHLIGHT;
-
-			if (Clist_GetEvent(si->hContact, 0))
-				Clist_RemoveEvent(si->hContact, GC_FAKE_EVENT);
-		}
+		si->markRead();
 
 		if (!si->pDlg) {
 			g_chatApi.ShowRoom(si);

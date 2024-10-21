@@ -46,10 +46,27 @@ static IconItem iconList[] =
 	{ LPGEN("Bot"), "bot", IDI_BOT },
 };
 
+static int OnModuleLoaded(WPARAM, LPARAM)
+{
+	g_plugin.hasNewStory = ServiceExists("NewStory/RemoteRead");
+	g_plugin.hasMessageState = ServiceExists(MS_MESSAGESTATE_UPDATE);
+	return 0;
+}
+
+static int OnModulesLoaded(WPARAM, LPARAM)
+{
+	HookEvent(ME_SYSTEM_MODULELOAD, OnModuleLoaded);
+	HookEvent(ME_SYSTEM_MODULEUNLOAD, OnModuleLoaded);
+	OnModuleLoaded(0, 0);
+	return 0;
+}
+
 int CMPlugin::Load()
 {
 	registerIcon("Protocols/Telegram", iconList, "tg");
-	
+
+	HookEvent(ME_SYSTEM_MODULESLOADED, OnModulesLoaded);
+
 	m_hIcon = ExtraIcon_RegisterIcolib("tg_premium", LPGEN("Telegram Premium user"), getIconHandle(IDI_PREMIUM));
 	return 0;
 }
