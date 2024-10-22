@@ -834,7 +834,7 @@ void CVkProto::ContactTypingThread(void *p)
 	Sleep(4500);
 	CallService(MS_PROTO_CONTACTISTYPING, hContact);
 
-	if (!g_bMessageState) {
+	if (!g_plugin.hasMessageState) {
 		Sleep(1500);
 		SetSrmmReadStatus(hContact);
 	}
@@ -865,7 +865,7 @@ int CVkProto::OnProcessSrmmEvent(WPARAM uType, LPARAM lParam)
 	if (szProto.IsEmpty() || szProto != m_szModuleName)
 		return 0;
 
-	if (uType == MSG_WINDOW_EVT_OPENING && !g_bMessageState)
+	if (uType == MSG_WINDOW_EVT_OPENING && !g_plugin.hasMessageState)
 		SetSrmmReadStatus(pDlg->m_hContact);
 
 	if (uType == MSG_WINDOW_EVT_OPENING && m_vkOptions.bLoadLastMessageOnMsgWindowsOpen && IsHystoryMessageExist(pDlg->m_hContact) != 1) {
@@ -913,6 +913,41 @@ void CVkProto::MarkDialogAsRead(MCONTACT hContact)
 
 		hDBEvent = db_event_next(hContact, hDBEvent);
 	}
+}
+
+void CVkProto::MarkRemoteRead(MCONTACT hContact, VKMessageID_t iMessageId)
+{
+	MEVENT hEvent = 0;
+
+	if (iMessageId) {
+		char szMid[40];
+		_ltoa(iMessageId, szMid, 10);
+		hEvent = db_event_getById(m_szModuleName, szMid);
+	}
+	else
+		hEvent = db_event_last(hContact);
+
+	if (!hEvent)
+		return;
+
+	MEVENT hReadEvent = getDword(hContact, "RemoteRead");
+	if (hReadEvent) {
+		DB::EventInfo dbeiRead(hReadEvent);
+		VKMessageID_t iReadMessageId = strtol(dbeiRead.szId, nullptr, 10);
+		if (iReadMessageId >= iMessageId)
+			return;
+	}
+	
+	setDword(hContact, "LastMsgReadTime", time(0));
+	setDword(hContact, "RemoteRead", hEvent);
+
+	if (g_plugin.hasNewStory)
+		NS_NotifyRemoteRead(hContact, hEvent);
+
+	if (g_plugin.hasMessageState)
+		CallService(MS_MESSAGESTATE_UPDATE, hContact, MRD_TYPE_READ);
+	else
+		SetSrmmReadStatus(hContact);
 }
 
 char* CVkProto::GetStickerId(const char *szMsg, int &iStickerId)
@@ -1223,6 +1258,9 @@ CMStringW CVkProto::SetBBCString(LPCWSTR pwszString, BBCSupport iBBC, VKBBCType 
 		{ vkbbcCode, bbcNo, L"%s" },
 		{ vkbbcCode, bbcBasic, L"%s" },
 		{ vkbbcCode, bbcAdvanced, L"[code]%s[/code]"},
+		{ vkbbcQuote, bbcNo, L"\n%s" },
+		{ vkbbcQuote, bbcBasic, L"\n%s" },
+		{ vkbbcQuote, bbcAdvanced, L"[quote]%s[/quote]"},
 		{ vkbbcImg, bbcNo, L"%s" },
 		{ vkbbcImg, bbcBasic, L"[img]%s[/img]" },
 		{ vkbbcImg, bbcAdvanced, L"[img]%s[/img]" },
@@ -1708,13 +1746,13 @@ CMStringW CVkProto::GetFwdMessage(const JSONNode& jnMsg, const JSONNode& jnFUser
 
 	wszBody.Replace(L"\n", L"\n\t");
 	wchar_t tcSplit = m_vkOptions.bSplitFormatFwdMsg ? '\n' : ' ';
-	CMStringW wszMes(FORMAT, L"%s %s%c%s %s:\n\n%s\n",
+	CMStringW wszMes(FORMAT, L"%s %s%c%s %s:%s\n",
 		SetBBCString(TranslateT("Message from"), iBBC, vkbbcB).c_str(),
 		SetBBCString(wszNick, iBBC, vkbbcUrl, wszUrl).c_str(),
 		tcSplit,
 		SetBBCString(TranslateT("at"), iBBC, vkbbcB).c_str(),
 		ttime,
-		wszBody.c_str());
+		SetBBCString(wszBody, m_vkOptions.bBBCNewStorySupport ? bbcAdvanced : bbcNo, vkbbcQuote).c_str());
 
 	return wszMes;
 
