@@ -25,12 +25,24 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef M_SRMM_INT_H__
 #define M_SRMM_INT_H__ 1
 
-#include <shellapi.h>
 #include <vector>
 
 #include <m_gui.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// global settings
+
 #define SRMM_MODULE "SRMM"
+#define SRMSGMOD    "SRMsg"
+
+#define LOADHISTORY_UNREAD    0
+#define LOADHISTORY_COUNT     1
+#define LOADHISTORY_TIME      2
+
+namespace Srmm
+{
+	extern MIR_APP_EXPORT CMOption<uint8_t> iHistoryMode;
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // toolbar button internal representation
@@ -273,6 +285,10 @@ public:
 
 #include <chat_resource.h>
 
+#ifndef _INC_SHELLAPI
+DECLARE_HANDLE(HDROP);
+#endif
+
 // message procedures' stubs
 EXTERN_C MIR_APP_DLL(LRESULT) CALLBACK stubLogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 EXTERN_C MIR_APP_DLL(LRESULT) CALLBACK stubMessageProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -287,6 +303,8 @@ class MIR_APP_EXPORT CSrmmBaseDialog : public CDlgBase
 
 	void OnNickListTimer(CTimer *);
 	void OnRedrawTimer(CTimer *);
+
+	void ProcessToolbarHotkey(INT_PTR iButtonFrom);
 
 	std::vector<MEVENT> m_arDisplayedEvents;
 
@@ -331,7 +349,7 @@ protected:
 	CCtrlMButton m_btnCloseQuote;
 
 	CCtrlButton m_btnColor, m_btnBkColor, m_btnOk;
-	CCtrlButton m_btnBold, m_btnItalic, m_btnUnderline;
+	CCtrlButton m_btnBold, m_btnItalic, m_btnUnderline, m_btnStrikeout;
 	CCtrlButton m_btnHistory, m_btnChannelMgr, m_btnNickList, m_btnFilter;
 
 	void onClick_BIU(CCtrlButton *);

@@ -400,9 +400,7 @@ void CMsgDialog::EventAdded(MEVENT hDbEvent, const DB::EventInfo &dbei)
 
 bool CMsgDialog::GetFirstEvent()
 {
-	int historyMode = g_plugin.getByte(m_hContact, SRMSGSET_LOADHISTORY, -1);
-	if (historyMode == -1)
-		historyMode = (int)g_plugin.getByte(SRMSGSET_LOADHISTORY, SRMSGDEFSET_LOADHISTORY);
+	int historyMode = g_plugin.getByte(m_hContact, "LoadHistory", Srmm::iHistoryMode);
 
 	m_hDbEventFirst = db_event_firstUnread(m_hContact);
 
@@ -968,15 +966,6 @@ void CMsgDialog::GetMYUIN()
 LRESULT CMsgDialog::GetSendButtonState()
 {
 	return m_btnOk.SendMsg(BUTTONGETSTATEID, TRUE, 0);
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-// reads send format and configures the toolbar buttons
-// if mode == 0, int only configures the buttons and does not change send format
-
-void CMsgDialog::GetSendFormat()
-{
-	m_bSendFormat = M.GetDword(m_hContact, "sendformat", g_plugin.bSendFormat) != 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -1681,7 +1670,7 @@ static UINT _eventorder[] =
 	GC_EVENT_NOTICE
 };
 
-INT_PTR CALLBACK CMsgDialog::FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+static INT_PTR CALLBACK FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	CMsgDialog *pDlg = (CMsgDialog *)GetWindowLongPtr(hwndDlg, GWLP_USERDATA);
 	switch (uMsg) {
@@ -1777,11 +1766,9 @@ INT_PTR CALLBACK CMsgDialog::FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wPara
 			Chat_SetFilters(pDlg->getChat());
 			pDlg->RedrawLog();
 		}
-		DestroyWindow(hwndDlg);
-		break;
 
-	case WM_DESTROY:
-		SetWindowLongPtr(hwndDlg, GWLP_USERDATA, 0);
+		pDlg->m_hwndFilter = nullptr;
+		DestroyWindow(hwndDlg);
 		break;
 	}
 	return FALSE;
@@ -2560,10 +2547,8 @@ void CMsgDialog::UpdateWindowState(UINT msg)
 
 		RECT rcFilter;
 		GetWindowRect(m_hwndFilter, &rcFilter);
-		if (!PtInRect(&rcFilter, pt)) {
+		if (!PtInRect(&rcFilter, pt))
 			SendMessage(m_hwndFilter, WM_CLOSE, 1, 1);
-			m_hwndFilter = nullptr;
-		}
 	}
 
 	if (m_bIsAutosizingInput && m_iInputAreaHeight == -1) {

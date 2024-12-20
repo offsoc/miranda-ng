@@ -417,7 +417,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	void     FlashOnClist(MEVENT hEvent, const DB::EventInfo &dbei);
 	void     FlashTab(bool bInvertMode);
 	LRESULT  GetSendButtonState();
-	void     GetSendFormat(void);
 	HICON    GetXStatusIcon() const;
 	void     HandlePasteAndSend(void);
 	void     LoadContactAvatar(void);
@@ -541,7 +540,6 @@ public:
 	TContainerData *m_pContainer;		// parent container description structure
 	AVATARCACHEENTRY *m_ace, *m_ownAce;
 
-	static INT_PTR CALLBACK FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 	bool TabAutoComplete();
 
 	HWND m_hwndFilter;
@@ -550,7 +548,7 @@ public:
 	SESSION_INFO *m_pLastSession;
 
 	CTimer timerAwayMsg;
-	CCtrlButton m_btnAdd, m_btnQuote, m_btnCancelAdd, m_btnStrikeout;
+	CCtrlButton m_btnAdd, m_btnQuote, m_btnCancelAdd;
 
 public:
 	CMsgDialog(int dlgId, MCONTACT hContact);
@@ -804,16 +802,10 @@ struct TIconDescW
 #define IPFONTID_PROTO             3
 #define IPFONTID_TIME              4
 
-#define LOADHISTORY_UNREAD         0
-#define LOADHISTORY_COUNT          1
-#define LOADHISTORY_TIME           2
-
 #define SRMSGSET_MSGTIMEOUT        "MessageTimeout"
 #define SRMSGDEFSET_MSGTIMEOUT     30000
 #define SRMSGSET_MSGTIMEOUT_MIN    5000 // minimum value (5 seconds)
 
-#define SRMSGSET_LOADHISTORY       "LoadHistory"
-#define SRMSGDEFSET_LOADHISTORY    LOADHISTORY_COUNT
 #define SRMSGSET_LOADCOUNT         "LoadCount"
 #define SRMSGDEFSET_LOADCOUNT      10
 #define SRMSGSET_LOADTIME          "LoadTime"
@@ -995,17 +987,12 @@ struct SIDEBARITEM
 #define TABSRMM_HK_CLEARLOG         24
 #define TABSRMM_HK_TOGGLESENDLATER  25
 #define TABSRMM_HK_TOGGLESIDEBAR    26
-#define TABSRMM_HK_CHANNELMGR       27
-#define TABSRMM_HK_FILTERTOGGLE     28
-#define TABSRMM_HK_LISTTOGGLE       29
-#define TABSRMM_HK_MUC_SHOWSERVER   30
 #define TABSRMM_HK_CLOSE_OTHER      31
 #define TABSRMM_HK_SENDMENU         32
 #define TABSRMM_HK_PROTOMENU        33
 
 #define TABSRMM_HK_SECTION_IM LPGEN("Message windows - IM")
 #define TABSRMM_HK_SECTION_GENERIC LPGEN("Message windows - all")
-#define TABSRMM_HK_SECTION_GC LPGEN("Message windows - group chats")
 
 // encryption status bar indicator
 #define MSG_ICON_MODULE " TabSrmm"
@@ -1030,7 +1017,7 @@ struct CMPlugin : public PLUGIN<CMPlugin>
 
 	// window settings
 	CMOption<bool> bAutoMin, bAutoClose, bFlashOnClist, bDeleteTemp;
-	CMOption<bool> bPasteAndSend, bSendFormat, bAutoSplit, bUseSameSplitSize, bAutoCopy;
+	CMOption<bool> bPasteAndSend, bAutoSplit, bUseSameSplitSize, bAutoCopy;
 	CMOption<bool> bStatusOnTabs, bUseXStatus, bDetailedTooltips, bAllowOfflineMultisend;
 	CMOption<bool> bAutoPopup, bAutoTabs, bAutoSwitchTabs, bAutoContainer, bPopupContainer, bHideOnClose, bAllowTab;
 
@@ -1038,7 +1025,7 @@ struct CMPlugin : public PLUGIN<CMPlugin>
 	CMOption<bool> bCloseSend, bShowDesc, bMetaTab, bMetaBar, bErrorPopup;
 
 	// chat settings
-	CMOption<bool> bOpenInDefault, bCreateWindowOnHighlight, bBBCodeInPopups;
+	CMOption<bool> bOpenInDefault, bCreateWindowOnHighlight, bApplyPrivateSettings, bBBCodeInPopups;
 	CMOption<bool> bLogClassicIndicators, bAlternativeSorting;
 	CMOption<bool> bLogSymbols, bClassicIndicators, bClickableNicks, bColorizeNicks, bColorizeNicksInLog;
 	CMOption<bool> bScaleIcons, bNewLineAfterNames;

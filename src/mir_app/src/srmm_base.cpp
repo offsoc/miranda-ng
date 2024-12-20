@@ -48,6 +48,7 @@ CSrmmBaseDialog::CSrmmBaseDialog(CMPluginBase &pPlugin, int idDialog, MCONTACT h
 
 	m_btnItalic(this, IDC_SRMM_ITALICS),
 	m_btnUnderline(this, IDC_SRMM_UNDERLINE),
+	m_btnStrikeout(this, IDC_SRMM_STRIKEOUT),
 
 	m_Quote(this, IDC_SRMM_QUOTE),
 	m_btnCloseQuote(this, IDC_SRMM_CLOSEQUOTE, SKINICON_OTHER_DELETE, LPGEN("Remove quoting")),
@@ -58,7 +59,7 @@ CSrmmBaseDialog::CSrmmBaseDialog(CMPluginBase &pPlugin, int idDialog, MCONTACT h
 {
 	m_btnColor.OnClick = Callback(this, &CSrmmBaseDialog::onClick_Color);
 	m_btnBkColor.OnClick = Callback(this, &CSrmmBaseDialog::onClick_BkColor);
-	m_btnBold.OnClick = m_btnItalic.OnClick = m_btnUnderline.OnClick = Callback(this, &CSrmmBaseDialog::onClick_BIU);
+	m_btnBold.OnClick = m_btnItalic.OnClick = m_btnUnderline.OnClick = m_btnStrikeout.OnClick = Callback(this, &CSrmmBaseDialog::onClick_BIU);
 
 	m_btnHistory.OnClick = Callback(this, &CSrmmBaseDialog::onClick_History);
 	m_btnChannelMgr.OnClick = Callback(this, &CSrmmBaseDialog::onClick_ChanMgr);
@@ -248,7 +249,7 @@ LRESULT CSrmmBaseDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 			MSG message = { m_hwnd, msg, wParam, lParam };
 			LRESULT iButtonFrom = Hotkey_Check(&message, BB_HK_SECTION);
 			if (iButtonFrom) {
-				Srmm_ProcessToolbarHotkey(m_hContact, iButtonFrom, m_hwnd);
+				ProcessToolbarHotkey(iButtonFrom);
 				return TRUE;
 			}
 		}
@@ -545,12 +546,11 @@ bool CSrmmBaseDialog::OnInitDialog()
 	// three buttons below are initiated inside this call, so button creation must precede subclassing
 	Srmm_CreateToolbarIcons(this, isChat() ? BBBF_ISCHATBUTTON : BBBF_ISIMBUTTON);
 
-	if ((CallContactService(m_hContact, PS_GETCAPS, PFLAGNUM_4) & PF4_SERVERFORMATTING) == 0)
-		m_bSendFormat = false;
-
+	m_bSendFormat = ((CallContactService(m_hContact, PS_GETCAPS, PFLAGNUM_4) & PF4_SERVERFORMATTING) != 0);
 	if (!m_bSendFormat) {
 		m_btnBold.Disable();
 		m_btnItalic.Disable();
+		m_btnStrikeout.Disable();
 		m_btnUnderline.Disable();
 		m_btnColor.Disable();
 		m_btnBkColor.Disable();
@@ -832,10 +832,15 @@ void CSrmmBaseDialog::UpdateChatLog()
 	m_pLog->Clear();
 	GetFirstEvent();
 
+	int iHistoryMode = Srmm::iHistoryMode;
+
 	auto *szProto = Proto_GetBaseAccountName(m_hContact);
 	for (MEVENT hDbEvent = m_hDbEventFirst; hDbEvent; hDbEvent = db_event_next(m_hContact, hDbEvent)) {
 		DB::EventInfo dbei(hDbEvent);
 		if (dbei && !mir_strcmp(szProto, dbei.szModule) && g_chatApi.DbEventIsShown(dbei) && dbei.szUserId) {
+			if (iHistoryMode == LOADHISTORY_UNREAD && (dbei.flags & DBEF_READ) != 0)
+				continue;
+
 			Utf2T wszUserId(dbei.szUserId);
 			ptrW wszText(dbei.getText());
 
@@ -871,8 +876,8 @@ void CSrmmBaseDialog::UpdateFilterButton()
 		Chat_SetFilters(m_si);
 
 	m_btnFilter.SendMsg(BUTTONADDTOOLTIP, (WPARAM)(m_bFilterEnabled 
-		? TranslateT("Disable the event filter (Ctrl+F)")
-		: TranslateT("Enable the event filter (Ctrl+F)")), BATF_UNICODE);
+		? TranslateT("Disable the event filter")
+		: TranslateT("Enable the event filter")), BATF_UNICODE);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -960,7 +965,7 @@ void CSrmmBaseDialog::onClick_BIU(CCtrlButton *pButton)
 
 	CHARFORMAT2 cf;
 	cf.cbSize = sizeof(CHARFORMAT2);
-	cf.dwMask = CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE;
+	cf.dwMask = CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_STRIKEOUT;
 	cf.dwEffects = 0;
 
 	if (IsDlgButtonChecked(m_hwnd, IDC_SRMM_BOLD))
@@ -969,6 +974,8 @@ void CSrmmBaseDialog::onClick_BIU(CCtrlButton *pButton)
 		cf.dwEffects |= CFE_ITALIC;
 	if (IsDlgButtonChecked(m_hwnd, IDC_SRMM_UNDERLINE))
 		cf.dwEffects |= CFE_UNDERLINE;
+	if (IsDlgButtonChecked(m_hwnd, IDC_SRMM_STRIKEOUT))
+		cf.dwEffects |= CFM_STRIKEOUT;
 	m_message.SendMsg(EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
 }
 
@@ -1100,50 +1107,9 @@ bool CSrmmBaseDialog::ProcessHotkeys(int key, bool isShift, bool isCtrl, bool is
 		return true;
 	}
 
-	if (isCtrl && !isAlt) {
-		switch (key) {
-		case VK_SPACE: // ctrl-space (paste clean text)
-			m_btnBold.Push(false); m_btnBold.Click();
-			m_btnItalic.Push(false); m_btnItalic.Click();
-			m_btnUnderline.Push(false); m_btnUnderline.Click();
-
-			m_btnColor.Push(false); m_btnColor.Click();
-			m_btnBkColor.Push(false); m_btnBkColor.Click();
-			return true;
-
-		case 0x42: // ctrl-b (bold)
-			m_btnBold.Push(!m_btnBold.IsPushed());
-			m_btnBold.Click();
-			return true;
-
-		case 0x48: // ctrl-h (history)
-			m_btnHistory.Click();
-			return true;
-
-		case 0x49: // ctrl-i (italics)
-			m_btnItalic.Push(!m_btnItalic.IsPushed());
-			m_btnItalic.Click();
-			return true;
-
-		case 0x4b: // ctrl-k (text color)
-			m_btnColor.Push(!m_btnColor.IsPushed());
-			m_btnColor.Click();
-			return true;
-
-		case 0x4c: // ctrl-l (back color)
-			m_btnBkColor.Push(!m_btnBkColor.IsPushed());
-			m_btnBkColor.Click();
-			return true;
-
-		case 0x55: // ctrl-u (underlining)
-			m_btnUnderline.Push(!m_btnUnderline.IsPushed());
-			m_btnUnderline.Click();
-			return true;
-
-		case VK_F4: // ctrl-F4 
-			CloseTab();
-			return true;
-		}
+	if (isCtrl && !isAlt && key == VK_F4) { // ctrl-F4 
+		CloseTab();
+		return true;
 	}
 
 	return false;
@@ -1151,9 +1117,6 @@ bool CSrmmBaseDialog::ProcessHotkeys(int key, bool isShift, bool isCtrl, bool is
 
 void CSrmmBaseDialog::RefreshButtonStatus()
 {
-	if (m_si == nullptr)
-		return;
-
 	CHARFORMAT2 cf;
 	cf.cbSize = sizeof(CHARFORMAT2);
 	cf.dwMask = CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_BACKCOLOR | CFM_COLOR;

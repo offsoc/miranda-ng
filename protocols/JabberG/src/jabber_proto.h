@@ -74,10 +74,116 @@ struct CChatMark
 	CMStringA szId, szFrom;
 };
 
+// basic class - provides interface for various Jabber auth
+
+class TJabberAuth : public MZeroedObject
+{
+protected:  bool bIsValid = true;
+			ptrA szName;
+			unsigned complete;
+			int priority;
+			ThreadData *info;
+public:
+	TJabberAuth(ThreadData *pInfo, const char *pszMech) :
+		info(pInfo),
+		szName(mir_strdup(pszMech))
+	{}
+
+	virtual ~TJabberAuth() {}
+
+	virtual char* getInitialRequest() { return nullptr; }
+	virtual char* getChallenge(const char*) { return nullptr; }
+	virtual bool validateLogin(const char*) { return true; }
+
+	__forceinline int getPriority() const {
+		return priority;
+	}
+
+	__forceinline const char *getName() const {
+		return szName;
+	}
+
+	__forceinline bool isValid() const {
+		return bIsValid;
+	}
+};
+
+class TUpgradeTask : public MZeroedObject
+{
+protected:
+	ptrA szName, szInitData;
+	ThreadData *info;
+	int priority;
+
+public:
+	TUpgradeTask(ThreadData *pInfo, const char *pszMech) :
+		info(pInfo),
+		szName(mir_strdup(pszMech))
+	{}
+
+	virtual ~TUpgradeTask() {}
+
+	__forceinline const char *getInitData() const {
+		return szInitData;
+	}
+
+	__forceinline const char *getName() const {
+		return szName;
+	}
+
+	__forceinline int getPriority() const {
+		return priority;
+	}
+
+	void setInitData(const char *pszData) {
+		szInitData = mir_strdup(pszData);
+	}
+
+	virtual bool perform(const TiXmlElement *src, TiXmlElement *dest) = 0;
+};
+
 struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 {
 	friend struct ThreadData;
 
+	struct XmppMsg
+	{
+		friend struct ThreadData;
+		friend struct CJabberProto;
+		~XmppMsg()
+		{
+			delete pFromResource;
+		}
+		XmppMsg(const TiXmlElement* _node, CJabberProto *proto):
+			node(_node), info(proto->m_ThreadInfo), m_proto(proto)
+		{
+			from = XmlGetAttr(node, "from"), type = XmlGetAttr(node, "type"),
+				idStr = XmlGetAttr(node, "id");
+			pFromResource = nullptr;
+			hContact = 0;
+		}
+		time_t extract_timestamp();
+		void process();
+		void handle_mam();
+		void handle_carbon();
+		bool handle_omemo();
+		void handle_chatstates();
+		void add_to_db();
+
+	private:
+		time_t msgTime = 0;
+		bool bEnableDelivery = true, bCreateRead = false, bWasSent = false;
+		const char* from = nullptr, * type = nullptr,
+			* idStr = nullptr, * szMamMsgId = nullptr;
+		ThreadData* info = nullptr;
+		const TiXmlElement *node = nullptr, *carbon = nullptr;
+		pResourceStatus *pFromResource;
+		DB::EventInfo dbei;
+		CMStringA szMessage;
+		
+		CJabberProto* m_proto;
+		MCONTACT hContact;
+	};
 	class CJabberProtoImpl
 	{
 		friend struct CJabberProto;
@@ -203,6 +309,7 @@ struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 	CMOption<bool> m_bEnableMsgArchive;
 	CMOption<bool> m_bEnableMam;
 	CMOption<bool> m_bEnableRemoteControl;
+	CMOption<bool> m_bEnableSasl2;
 	CMOption<bool> m_bEnableStreamMgmt;
 	CMOption<bool> m_bEnableUserActivity;
 	CMOption<bool> m_bEnableUserMood;
@@ -721,7 +828,7 @@ struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 
 	//---- jabber_omemo.cpp --------------------------------------------------------------
 
-	bool       OmemoHandleMessage(const TiXmlElement *node, const char *jid, time_t msgTime, bool isCarbon);
+	bool       OmemoHandleMessage(XmppMsg *msg, const TiXmlElement *node, const char *jid, time_t msgTime, bool isCarbon);
 	void       OmemoPutMessageToOutgoingQueue(MCONTACT hContact, const char *pszSrc);
 	void       OmemoHandleMessageQueue();
 	bool       OmemoHandleDeviceList(const char *from, const TiXmlElement *node);
@@ -786,6 +893,15 @@ struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 	void       SearchDeleteFromRecent(const char *szAddr, bool deleteLastFromDB);
 	void       SearchAddToRecent(const char *szAddr, HWND hwndDialog = nullptr);
 
+	//---- jabber_auth.cpp ---------------------------------------------------------------
+
+	OBJLIST<TJabberAuth> m_arAuthMechs;
+
+	OBJLIST<TUpgradeTask> m_arSaslUpgrade;
+	void       OnProcessChannelBinding(const TiXmlElement *node);
+	bool       OnProcessMechanism(const TiXmlElement *node, ThreadData *info);
+	void       OnProcessUpgrade(const TiXmlElement *node, ThreadData *info);
+
 	//---- jabber_svc.c ------------------------------------------------------------------
 
 	void       CheckMenuItems();
@@ -815,8 +931,7 @@ struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 	ptrA       m_szGroupDelimiter;
 	ptrW       m_savedPassword;
 
-	OBJLIST<class TJabberAuth> m_arAuthMechs;
-	bool       m_isSessionAvailable, m_isAuthAvailable;
+	bool       m_hasSession, m_hasAuth, m_hasSasl2;
 	
 	void       __cdecl ServerThread(JABBER_CONN_DATA *info);
 	bool       ServerThreadStub(ThreadData &info);
@@ -827,8 +942,11 @@ struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 	void       OnProcessError(const TiXmlElement *node, ThreadData *info);
 	void       OnProcessSuccess(const TiXmlElement *node, ThreadData *info);
 	void       OnProcessChallenge(const TiXmlElement *node, ThreadData *info);
+	void       OnProcessContinue(const TiXmlElement *node, ThreadData *info);
+	void       OnProcessTaskData(const TiXmlElement *node, ThreadData *info);
 	void       OnProcessProceed(const TiXmlElement *node, ThreadData *info);
 	void       OnProcessCompressed(const TiXmlElement *node, ThreadData *info);
+	//message processing helpers
 	void       OnProcessMessage(const TiXmlElement *node, ThreadData *info);
 	void       OnProcessPresence(const TiXmlElement *node, ThreadData *info);
 	void       OnProcessPresenceCapabilites(const TiXmlElement *node, pResourceStatus &resource);
@@ -887,6 +1005,8 @@ struct CJabberProto : public PROTO<CJabberProto>, public IJabberInterface
 	
 	bool       IsMyOwnJID(const char *szJID);
 	bool       IsSendAck(MCONTACT hContact);
+
+	void       ConfigurePepNode(const char *nodename, const char *access_model, const char *max_items = nullptr);
 				 
 	void       __cdecl LoadHttpAvatars(void* param);
 	CMStringA  MyNick(MCONTACT hContact = 0);

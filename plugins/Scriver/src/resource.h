@@ -43,6 +43,7 @@
 #define IDI_BUNDERLINE                  420
 #define IDI_BBOLD                       421
 #define IDI_BITALICS                    422
+#define IDI_STRIKEOUT                   423
 #define IDI_TOPICBUT                    424
 #define IDI_BKGCOLOR                    425
 #define IDI_CHANMGR                     426
@@ -127,7 +128,6 @@
 #define IDC_NOTIFYBALLOON               1608
 #define IDC_DELTEMP                     1609
 #define IDC_DELTEMP2                    1610
-#define IDC_SEND_FORMAT                 1610
 #define IDC_AVATARSUPPORT               1611
 #define IDC_LIMITNAMES                  1615
 #define IDC_TRANSPARENCY                1616

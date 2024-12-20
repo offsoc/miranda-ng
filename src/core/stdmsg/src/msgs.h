@@ -43,8 +43,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	void UpdateIcon(WPARAM wParam);
 	void UpdateLastMessage(void);
 
-	static INT_PTR CALLBACK FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
-
 	CCtrlBase m_avatar;
 	
 	void OnFlash(CTimer *);
@@ -125,6 +123,7 @@ public:
 	bool m_bIsAutoRTL = false;
 	HBITMAP m_avatarPic = 0;
 	wchar_t *m_wszInitialText = 0;
+	MWindow m_hwndFilter;
 
 	int GetImageId() const;
 
@@ -176,12 +175,6 @@ int OptInitialise(WPARAM, LPARAM);
 
 bool LoadMsgDlgFont(int i, LOGFONT* lf, COLORREF* colour);
 
-#define LOADHISTORY_UNREAD    0
-#define LOADHISTORY_COUNT     1
-#define LOADHISTORY_TIME      2
-
-#define SRMM_MODULE           "SRMM"
-#define SRMSGMOD              "SRMsg"
 #define DBSAVEDMSG            "SavedMsg"
 
 #define SRMSGSET_TYPING  "SupportTyping"

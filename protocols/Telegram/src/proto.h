@@ -102,7 +102,7 @@ struct TG_USER : public MZeroedObject
 	int64_t   id, chatId = -1;
 	MCONTACT  hContact;
 	int       folderId = -1, nHistoryChunks;
-	bool      isGroupChat, isChannel, isBot, isForum, bLoadMembers, bStartChat, bInited;
+	bool      isGroupChat, isChannel, isBot, isForum, bLoadMembers, bStartChat, bInited, bDelOwn = true, bDelAll = true;
 	CMStringA szAvatarHash;
 	CMStringW wszNick, wszFirstName, wszLastName;
 	time_t    m_timer1 = 0, m_timer2 = 0;
@@ -279,6 +279,7 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	void ProcessOption(TD::updateOption *pObj);
 	void ProcessRemoteMarkRead(TD::updateChatReadOutbox *pObj);
 	void ProcessScopeNotification(TD::updateScopeNotificationSettings *pObj);
+	void ProcessServiceNotification(TD::updateServiceNotification *pObj);
 	void ProcessStatus(TD::updateUserStatus *pObj);
 	void ProcessSuperGroup(TD::updateSupergroup *pObj);
 	void ProcessSuperGroupInfo(TD::updateSupergroupFullInfo *pObj);
@@ -303,7 +304,7 @@ class CTelegramProto : public PROTO<CTelegramProto>
 	
 	CMStringA GetFormattedText(TD::object_ptr<TD::formattedText> &pText);
 	CMStringA GetMessagePreview(const TD::file *pFile);
-	CMStringA GetMessageSticker(const TD::file *pFile, const char *pwszExtension);
+	CMStringA GetMessageSticker(const TD::file *pFile, const TD::ThumbnailFormat *pFormat);
 	CMStringA GetMessageText(TG_USER *pUser, const TD::message *pMsg, bool bSkipJoin = false, bool bRead = false);
 
 	void UpdateString(MCONTACT hContact, const char *pszSetting, const std::string &str);

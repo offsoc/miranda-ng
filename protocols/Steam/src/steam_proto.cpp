@@ -1,15 +1,9 @@
 #include "stdafx.h"
 
-static int CompareRequests(const ProtoRequest *p1, const ProtoRequest *p2)
-{
-	if (p1->id == p2->id)
-		return 0;
-	return (p1->id < p2->id) ? -1 : 1;
-}
-
 CSteamProto::CSteamProto(const char *protoName, const wchar_t *userName) :
 	PROTO<CSteamProto>(protoName, userName),
-	m_arRequests(10, CompareRequests),
+	m_impl(*this),
+	m_arOwnMessages(1, NumericKeySortT),
 	m_wszGroupName(this, "DefaultGroup", L"Steam"),
 	m_wszDeviceName(this, "DeviceName", L"Miranda NG")
 {
@@ -92,12 +86,10 @@ CSteamProto::~CSteamProto()
 
 MCONTACT CSteamProto::AddToList(int, PROTOSEARCHRESULT *psr)
 {
-	MCONTACT hContact = AddContact(T2Utf(psr->id.w), psr->nick.w, true);
+	uint64_t id = _wtoi64(psr->id.w);
+	MCONTACT hContact = AddContact(id, psr->nick.w, true);
 
-	if (psr->cbSize == sizeof(STEAM_SEARCH_RESULT)) {
-		STEAM_SEARCH_RESULT *ssr = (STEAM_SEARCH_RESULT *)psr;
-		UpdateContactDetails(hContact, *ssr->data);
-	}
+	SendUserInfoRequest(id);
 
 	return hContact;
 }
@@ -113,7 +105,7 @@ MCONTACT CSteamProto::AddToListByEvent(int, int, MEVENT hDbEvent)
 		return 0;
 
 	DB::AUTH_BLOB blob(dbei.pBlob);
-	return AddContact(blob.get_email(), Utf2T(blob.get_nick()));
+	return AddContact(_atoi64(blob.get_email()), Utf2T(blob.get_nick()));
 }
 
 int CSteamProto::Authorize(MEVENT hDbEvent)
@@ -123,16 +115,10 @@ int CSteamProto::Authorize(MEVENT hDbEvent)
 		if (hContact == INVALID_CONTACT_ID)
 			return 1;
 
-		ptrA token(getStringA("TokenSecret"));
 		ptrA sessionId(getStringA("SessionID"));
-		ptrA steamId(getStringA(DBKEY_STEAM_ID));
 		char *who = getStringA(hContact, DBKEY_STEAM_ID);
 
-		SendRequest(
-			new ApprovePendingRequest(token, sessionId, steamId, who),
-			&CSteamProto::OnPendingApproved,
-			who);
-
+		SendRequest(new ApprovePendingRequest(m_szAccessToken, sessionId, m_iSteamId, who), &CSteamProto::OnPendingApproved, who);
 		return 0;
 	}
 
@@ -153,16 +139,9 @@ int CSteamProto::AuthDeny(MEVENT hDbEvent, const wchar_t*)
 		if (hContact == INVALID_CONTACT_ID)
 			return 1;
 
-		ptrA token(getStringA("TokenSecret"));
 		ptrA sessionId(getStringA("SessionID"));
-		ptrA steamId(getStringA(DBKEY_STEAM_ID));
 		char *who = getStringA(hContact, DBKEY_STEAM_ID);
-
-		SendRequest(
-			new IgnorePendingRequest(token, sessionId, steamId, who),
-			&CSteamProto::OnPendingIgnoreded,
-			who);
-
+		SendRequest(new IgnorePendingRequest(m_szAccessToken, sessionId, m_iSteamId, who), &CSteamProto::OnPendingIgnoreded, who);
 		return 0;
 	}
 
@@ -173,21 +152,7 @@ int CSteamProto::AuthRequest(MCONTACT hContact, const wchar_t*)
 {
 	if (IsOnline() && hContact) {
 		UINT hAuth = InterlockedIncrement(&hAuthProcess);
-
-		SendAuthParam *param = (SendAuthParam*)mir_calloc(sizeof(SendAuthParam));
-		param->hContact = hContact;
-		param->hAuth = (HANDLE)hAuth;
-
-		ptrA token(getStringA("TokenSecret"));
-		ptrA sessionId(getStringA("SessionID"));
-		ptrA steamId(getStringA(DBKEY_STEAM_ID));
-		ptrA who(getStringA(hContact, DBKEY_STEAM_ID));
-
-		SendRequest(
-			new AddFriendRequest(token, sessionId, steamId, who),
-			&CSteamProto::OnFriendAdded,
-			param);
-
+		SendUserAddRequest(GetId(hContact, DBKEY_STEAM_ID));
 		return hAuth;
 	}
 
@@ -218,7 +183,7 @@ HANDLE CSteamProto::SearchBasic(const wchar_t* id)
 		return nullptr;
 
 	ptrA steamId(mir_u2a(id));
-	SendRequest(new GetUserSummariesRequest(this, steamId), &CSteamProto::OnSearchResults, (HANDLE)STEAM_SEARCH_BYID);
+	SendRequest(new GetUserSummariesRequest(m_szAccessToken, steamId), &CSteamProto::OnSearchResults, (HANDLE)STEAM_SEARCH_BYID);
 
 	return (HANDLE)STEAM_SEARCH_BYID;
 }
@@ -232,11 +197,10 @@ HANDLE CSteamProto::SearchByName(const wchar_t *nick, const wchar_t *firstName, 
 	wchar_t keywordsT[200];
 	mir_snwprintf(keywordsT, L"%s %s %s", nick, firstName, lastName);
 
-	ptrA token(getStringA("TokenSecret"));
 	ptrA keywords(mir_utf8encodeW(rtrimw(keywordsT)));
 
 	SendRequest(
-		new SearchRequest(token, keywords),
+		new SearchRequest(m_szAccessToken, keywords),
 		&CSteamProto::OnSearchByNameStarted,
 		(HANDLE)STEAM_SEARCH_BYNAME);
 
@@ -248,7 +212,15 @@ int CSteamProto::SendMsg(MCONTACT hContact, MEVENT, const char *message)
 	if (!IsOnline())
 		return -1;
 
-	return OnSendMessage(hContact, message);
+	UINT hMessage = InterlockedIncrement(&hMessageProcess);
+	auto *pOwn = new COwnMessage(hContact, hMessage);
+	{
+		mir_cslock lck(m_csOwnMessages);
+		m_arOwnMessages.insert(pOwn);
+	}
+
+	pOwn->iSourceId = SendFriendMessage(EChatEntryType::ChatMsg, GetId(hContact, DBKEY_STEAM_ID), message);
+	return hMessage;
 }
 
 int CSteamProto::SetStatus(int new_status)
@@ -283,26 +255,30 @@ int CSteamProto::SetStatus(int new_status)
 	m_iDesiredStatus = new_status;
 
 	if (new_status == ID_STATUS_OFFLINE) {
-		m_iStatus = m_iDesiredStatus = ID_STATUS_OFFLINE;
-
 		if (!Miranda_IsTerminated())
 			SetAllContactStatuses(ID_STATUS_OFFLINE);
+
+		if (IsOnline())
+			SendLogout();
 
 		Logout();
 	}
 	else if (m_ws == nullptr && !IsStatusConnecting(m_iStatus)) {
 		m_iStatus = ID_STATUS_CONNECTING;
-		ForkThread(&CSteamProto::ServerThread);
-
-		Login();
 		ProtoBroadcastAck(NULL, ACKTYPE_STATUS, ACKRESULT_SUCCESS, (HANDLE)old_status, m_iStatus);
+
+		ForkThread(&CSteamProto::ServerThread);
 	}
 	else if (IsOnline()) {
 		m_iStatus = new_status;
 		ProtoBroadcastAck(NULL, ACKTYPE_STATUS, ACKRESULT_SUCCESS, (HANDLE)old_status, m_iStatus);
+
+		SendPersonaStatus(m_iStatus);
 	}
 	return 0;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 void CSteamProto::GetAwayMsgThread(void *arg)
 {
@@ -332,15 +308,27 @@ HANDLE CSteamProto::GetAwayMsg(MCONTACT hContact)
 	return (HANDLE)1;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////
+
 bool CSteamProto::OnContactDeleted(MCONTACT hContact, uint32_t)
 {
 	// remove only authorized contacts
-	if (!getByte(hContact, "Auth", 0)) {
-		ptrA token(getStringA("TokenSecret"));
-		ptrA sessionId(getStringA("SessionID"));
-		ptrA steamId(getStringA(DBKEY_STEAM_ID));
-		char *who = getStringA(hContact, DBKEY_STEAM_ID);
-		SendRequest(new RemoveFriendRequest(token, sessionId, steamId, who), &CSteamProto::OnFriendRemoved, (void*)who);
-	}
+	if (!getByte(hContact, "Auth"))
+		SendUserRemoveRequest(hContact);
+
 	return true;
+}
+
+int CSteamProto::OnPreCreateMessage(WPARAM, LPARAM lParam)
+{
+	MessageWindowEvent *evt = (MessageWindowEvent *)lParam;
+	if (!mir_strcmp(Proto_GetBaseAccountName(evt->hContact), m_szModuleName)) {
+		mir_cslock lck(m_csOwnMessages);
+		if (auto *pOwn = m_arOwnMessages.find((COwnMessage *)&evt->seq)) {
+			evt->dbei->timestamp = pOwn->timestamp;
+			m_arOwnMessages.remove(pOwn);
+		}
+	}
+
+	return 0;
 }

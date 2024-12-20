@@ -27,7 +27,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "jabber_iq.h"
 #include "jabber_caps.h"
 #include "jabber_disco.h"
-#include "jabber_secur.h"
 
 #pragma warning(disable:4355)
 
@@ -53,12 +52,23 @@ static int compareListItems(const JABBER_LIST_ITEM *p1, const JABBER_LIST_ITEM *
 	return mir_strcmpi(szp1, szp2);
 }
 
+static int compareAuth(const TJabberAuth *p1, const TJabberAuth *p2)
+{
+	return p2->getPriority() - p1->getPriority(); // reverse sorting order
+}
+
+static int compareTasks(const TUpgradeTask *p1, const TUpgradeTask *p2)
+{
+	return p2->getPriority() - p1->getPriority(); // reverse sorting order
+}
+
 CJabberProto::CJabberProto(const char *aProtoName, const wchar_t *aUserName) :
 	PROTO<CJabberProto>(aProtoName, aUserName),
 	m_impl(*this),
 	m_omemo(this),
 	m_arChatMarks(50, NumericKeySortT),
-	m_arAuthMechs(1, &TJabberAuth::compare),
+	m_arAuthMechs(1, compareAuth),
+	m_arSaslUpgrade(1, compareTasks),
 	m_lstTransports(50, compareTransports),
 	m_lstRoster(50, compareListItems),
 	m_iqManager(this),
@@ -98,6 +108,7 @@ CJabberProto::CJabberProto(const char *aProtoName, const wchar_t *aUserName) :
 	m_bEnableMam(this, "EnableMam", true),
 	m_bEnableMsgArchive(this, "EnableMsgArchive", false),
 	m_bEnableRemoteControl(this, "EnableRemoteControl", false),
+	m_bEnableSasl2(this, "EnableSasl2", true),
 	m_bEnableStreamMgmt(this, "UseStreamMgmt", false),
 	m_bEnableUserActivity(this, "EnableUserActivity", true),
 	m_bEnableUserMood(this, "EnableUserMood", true),

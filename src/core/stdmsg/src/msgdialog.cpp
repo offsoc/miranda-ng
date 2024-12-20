@@ -55,7 +55,6 @@ CMsgDialog::CMsgDialog(CTabbedWindow *pOwner, MCONTACT hContact) :
 	m_autoClose = 0;
 	m_forceResizable = true;
 	m_bNoActivate = g_plugin.bDoNotStealFocus;
-	m_bSendFormat = g_plugin.bSendFormat;
 
 	g_arDialogs.insert(this);
 
@@ -274,8 +273,12 @@ void CMsgDialog::onClick_Filter(CCtrlButton *pButton)
 
 	if (m_bFilterEnabled && !g_chatApi.bRightClickFilter)
 		ShowFilterMenu();
-	else
+	else {
+		if (m_hwndFilter)
+			SendMessage(m_hwndFilter, WM_CLOSE, 0, 0);
+
 		RedrawLog();
+	}
 }
 
 void CMsgDialog::onClick_NickList(CCtrlButton *pButton)
@@ -876,21 +879,6 @@ LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 
 		if (isChat()) {
-			if (wParam == 0x46 && isCtrl && !isAlt) { // ctrl-f (toggle filter)
-				m_btnFilter.Click();
-				return TRUE;
-			}
-
-			if (wParam == 0x4e && isCtrl && !isAlt) { // ctrl-n (nicklist)
-				m_btnNickList.Click();
-				return TRUE;
-			}
-
-			if (wParam == 0x4f && isCtrl && !isAlt) { // ctrl-o (options)
-				m_btnChannelMgr.Click();
-				return TRUE;
-			}
-
 			if (wParam == VK_TAB && isShift && !isCtrl) { // SHIFT-TAB (go to nick list)
 				SetFocus(m_nickList.GetHwnd());
 				return TRUE;
@@ -1254,7 +1242,7 @@ bool CMsgDialog::GetFirstEvent()
 
 	DB::ECPTR pCursor(DB::EventsRev(m_hContact, m_hDbEventFirst));
 
-	switch (g_plugin.iLoadHistory) {
+	switch (Srmm::iHistoryMode) {
 	case LOADHISTORY_COUNT:
 		for (int i = g_plugin.nLoadCount; i--;) {
 			MEVENT hPrevEvent = pCursor.FetchNext();

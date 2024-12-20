@@ -83,6 +83,9 @@ CTelegramProto::CTelegramProto(const char* protoName, const wchar_t* userName) :
 	// menus
 	InitMenus();
 
+	// popups
+	g_plugin.addPopupOption(CMStringW(FORMAT, TranslateT("%s error notifications"), m_tszUserName), m_bUsePopups);
+
 	// Cloud file transfer
 	CreateProtoService(PS_OFFLINEFILE, &CTelegramProto::SvcOfflineFile);
 
@@ -169,6 +172,8 @@ bool CTelegramProto::OnContactDeleted(MCONTACT hContact, uint32_t flags)
 
 void CTelegramProto::OnModulesLoaded()
 {
+	InitPopups();
+
 	m_bSmileyAdd = ServiceExists(MS_SMILEYADD_REPLACESMILEYS);
 	if (m_bSmileyAdd)
 		SmileyAdd_LoadContactSmileys(SMADD_FOLDER, m_szModuleName, GetAvatarPath() + L"\\Stickers\\*.*");
@@ -344,21 +349,12 @@ int CTelegramProto::AuthRequest(MCONTACT hContact, const wchar_t *)
 
 INT_PTR CTelegramProto::GetCaps(int type, MCONTACT hContact)
 {
-	uint32_t ret;
-
 	switch (type) {
 	case PFLAGNUM_1:
 		return PF1_IM | PF1_FILE | PF1_CHAT | PF1_SEARCHBYNAME | PF1_ADDSEARCHRES | PF1_MODEMSGRECV | PF1_SERVERCLIST;
 
 	case PFLAGNUM_2:
 		return PF2_ONLINE | PF2_SHORTAWAY | PF2_LONGAWAY;
-
-	case PFLAGNUM_4:
-		ret = PF4_NOCUSTOMAUTH | PF4_FORCEAUTH | PF4_OFFLINEFILES | PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_AVATARS 
-			| PF4_SERVERMSGID | PF4_REPLY | PF4_GROUPCHATFILES | PF4_IMSENDOFFLINE | PF4_SERVERFORMATTING;
-		if (GetId(hContact) != m_iOwnId)
-			ret |= PF4_DELETEFORALL;
-		return ret;
 		
 	case PFLAGNUM_5:
 		return PF2_SHORTAWAY | PF2_LONGAWAY;
@@ -366,9 +362,17 @@ INT_PTR CTelegramProto::GetCaps(int type, MCONTACT hContact)
 	case PFLAG_UNIQUEIDTEXT:
 		return (INT_PTR)L"ID";
 
-	default:
-		return 0;
+	case PFLAGNUM_4:
+		uint32_t ret = PF4_NOCUSTOMAUTH | PF4_FORCEAUTH | PF4_OFFLINEFILES | PF4_NOAUTHDENYREASON | PF4_SUPPORTTYPING | PF4_AVATARS
+			| PF4_SERVERMSGID | PF4_REPLY | PF4_GROUPCHATFILES | PF4_IMSENDOFFLINE | PF4_SERVERFORMATTING;
+
+		if (GetId(hContact) != m_iOwnId)
+			ret |= PF4_DELETEFORALL;
+
+		return ret;
 	}
+
+	return 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -454,9 +458,6 @@ void CTelegramProto::ProcessFileMessage(TG_FILE_REQUEST *ft, const TD::message *
 			szUserId[0] = 0;
 
 		if (bCreateEvent) {
-			auto *pFileName = pFile->local_->path_.c_str();
-			CMStringA szDescr = GetMessageText(pUser, pMsg);
-
 			DB::EventInfo dbei;
 			dbei.szModule = Proto_GetBaseAccountName(ft->m_hContact);
 			dbei.eventType = EVENTTYPE_FILE;
@@ -464,7 +465,7 @@ void CTelegramProto::ProcessFileMessage(TG_FILE_REQUEST *ft, const TD::message *
 			dbei.timestamp = time(0);
 
 			TG_FILE_REQUEST localft(TG_FILE_REQUEST::FILE, 0, 0);
-			localft.m_fileName = Utf2T(pFileName);
+			localft.m_fileName = Utf2T(pFile->local_->path_.c_str());
 			localft.m_fileSize = pFile->size_;
 			localft.m_uniqueId = szMsgId;
 			localft.m_szUserId = szUserId;
@@ -653,6 +654,8 @@ int CTelegramProto::SetStatus(int iNewStatus)
 	// Routing statuses not supported by Telegram
 	switch (iNewStatus) {
 	case ID_STATUS_OFFLINE:
+	case ID_STATUS_AWAY:
+	case ID_STATUS_NA:
 		m_iDesiredStatus = iNewStatus;
 		break;
 

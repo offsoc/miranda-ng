@@ -64,7 +64,6 @@ CMPlugin::CMPlugin() :
 	bAutoClose(SRMM_MODULE, "AutoClose", false),
 	bShowNames(SRMM_MODULE, "ShowNames", false),
 	bShowFormat(SRMM_MODULE, "ShowFormatting", true),
-	bSendFormat(SRMM_MODULE, "SendFormat", false),
 	bSendButton(SRMM_MODULE, "UseSendButton", false),
 	bCtrlSupport(SRMM_MODULE, "SupportCtrlUpDn", true),
 	bShowReadChar(SRMM_MODULE, "ShowCharCount", false),
@@ -81,7 +80,6 @@ CMPlugin::CMPlugin() :
 
 	msgTimeout(SRMM_MODULE, "MessageTimeout", 65000),
 
-	iLoadHistory(SRMM_MODULE, "LoadHistory", LOADHISTORY_UNREAD),
 	nLoadCount(SRMM_MODULE, "LoadCount", 10),
 	nLoadTime(SRMM_MODULE, "LoadTime", 10),
 

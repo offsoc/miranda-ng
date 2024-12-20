@@ -92,7 +92,6 @@ CMsgDialog::CMsgDialog(MCONTACT hContact, bool bIncoming) :
 	SetParent(GetParentWindow(m_hContact, isChat()));
 	m_pParent = (ParentWindowData *)GetWindowLongPtr(m_hwndParent, GWLP_USERDATA);
 
-	m_bSendFormat = g_plugin.bSendFormat;
 	m_btnOk.OnClick = Callback(this, &CMsgDialog::onClick_Ok);
 
 	timerType.OnEvent = Callback(this, &CMsgDialog::onType);
@@ -435,8 +434,12 @@ void CMsgDialog::onClick_Filter(CCtrlButton *pButton)
 
 	if (m_bFilterEnabled && !g_chatApi.bRightClickFilter)
 		ShowFilterMenu();
-	else
+	else {
+		if (m_hwndFilter)
+			SendMessage(m_hwndFilter, WM_CLOSE, 0, 0);
+
 		RedrawLog();
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -614,84 +617,6 @@ void CMsgDialog::MessageDialogResize(int w, int h)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-INT_PTR CALLBACK CMsgDialog::FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	int iFlags;
-	static CMsgDialog *pDlg = nullptr;
-
-	switch (uMsg) {
-	case WM_INITDIALOG:
-		pDlg = (CMsgDialog *)lParam;
-
-		iFlags = db_get_dw(pDlg->m_hContact, CHAT_MODULE, "FilterFlags");
-		CheckDlgButton(hwndDlg, IDC_CHAT_1, iFlags & GC_EVENT_ACTION ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_2, iFlags & GC_EVENT_MESSAGE ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_3, iFlags & GC_EVENT_NICK ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_4, iFlags & GC_EVENT_JOIN ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_5, iFlags & GC_EVENT_PART ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_6, iFlags & GC_EVENT_TOPIC ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_7, iFlags & GC_EVENT_ADDSTATUS ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_8, iFlags & GC_EVENT_INFORMATION ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_9, iFlags & GC_EVENT_QUIT ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_10, iFlags & GC_EVENT_KICK ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(hwndDlg, IDC_CHAT_11, iFlags & GC_EVENT_NOTICE ? BST_CHECKED : BST_UNCHECKED);
-		break;
-
-	case WM_CTLCOLOREDIT:
-	case WM_CTLCOLORSTATIC:
-		SetTextColor((HDC)wParam, RGB(60, 60, 150));
-		SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
-		return (INT_PTR)GetSysColorBrush(COLOR_WINDOW);
-
-	case WM_ACTIVATE:
-		if (LOWORD(wParam) == WA_INACTIVE) {
-			iFlags = 0;
-
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_1) == BST_CHECKED)
-				iFlags |= GC_EVENT_ACTION;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_2) == BST_CHECKED)
-				iFlags |= GC_EVENT_MESSAGE;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_3) == BST_CHECKED)
-				iFlags |= GC_EVENT_NICK;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_4) == BST_CHECKED)
-				iFlags |= GC_EVENT_JOIN;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_5) == BST_CHECKED)
-				iFlags |= GC_EVENT_PART;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_6) == BST_CHECKED)
-				iFlags |= GC_EVENT_TOPIC;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_7) == BST_CHECKED)
-				iFlags |= GC_EVENT_ADDSTATUS;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_8) == BST_CHECKED)
-				iFlags |= GC_EVENT_INFORMATION;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_9) == BST_CHECKED)
-				iFlags |= GC_EVENT_QUIT;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_10) == BST_CHECKED)
-				iFlags |= GC_EVENT_KICK;
-			if (IsDlgButtonChecked(hwndDlg, IDC_CHAT_11) == BST_CHECKED)
-				iFlags |= GC_EVENT_NOTICE;
-
-			if (iFlags & GC_EVENT_ADDSTATUS)
-				iFlags |= GC_EVENT_REMOVESTATUS;
-
-			db_set_dw(pDlg->m_hContact, CHAT_MODULE, "FilterFlags", iFlags);
-			db_set_dw(pDlg->m_hContact, CHAT_MODULE, "FilterMask", 0xFFFF);
-
-			Chat_SetFilters(pDlg->getChat());
-			pDlg->RedrawLog();
-			PostMessage(hwndDlg, WM_CLOSE, 0, 0);
-		}
-		break;
-
-	case WM_CLOSE:
-		DestroyWindow(hwndDlg);
-		break;
-	}
-
-	return FALSE;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-
 LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	int result = InputAreaShortcuts(m_message.GetHwnd(), msg, wParam, lParam);
@@ -736,28 +661,6 @@ LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 			if (wParam != VK_RIGHT && wParam != VK_LEFT) {
 				replaceStrW(m_wszSearchQuery, nullptr);
 				replaceStrW(m_wszSearchResult, nullptr);
-			}
-
-			if (wParam == 0x46 && isCtrl && !isAlt) { // ctrl-f (toggle filter)
-				m_btnFilter.Click();
-				return TRUE;
-			}
-
-			if (wParam == 0x4e && isCtrl && !isAlt) { // ctrl-n (nicklist)
-				if (m_btnNickList.Enabled())
-					m_btnNickList.Click();
-				return TRUE;
-			}
-
-			if (wParam == 0x48 && isCtrl && !isAlt) { // ctrl-h (history)
-				m_btnHistory.Click();
-				return TRUE;
-			}
-
-			if (wParam == 0x4f && isCtrl && !isAlt) { // ctrl-o (options)
-				if (m_btnChannelMgr.Enabled())
-					m_btnChannelMgr.Click();
-				return TRUE;
 			}
 		}
 

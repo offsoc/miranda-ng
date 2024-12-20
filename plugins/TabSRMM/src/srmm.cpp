@@ -52,7 +52,7 @@ PLUGININFOEX pluginInfoEx = {
 };
 
 CMPlugin::CMPlugin() :
-	PLUGIN<CMPlugin>("SRMsg", pluginInfoEx),
+	PLUGIN<CMPlugin>(SRMM_MODULE, pluginInfoEx),
 
 	// main settings
 	bAutoMin(SRMSGMOD_T, "AutoMin", false),
@@ -64,7 +64,6 @@ CMPlugin::CMPlugin() :
 	bAutoSplit(SRMSGMOD_T, "autosplit", false),
 	bDeleteTemp(SRMSGMOD_T, "deletetemp", false),
 	bUseXStatus(SRMSGMOD_T, "use_xicons", true),
-	bSendFormat(SRMSGMOD_T, "sendformat", false),
 	bHideOnClose(SRMSGMOD_T, "hideonclose", false),
 	bStatusOnTabs(SRMSGMOD_T, "tabstatus", true),
 	bFlashOnClist(SRMSGMOD_T, "flashcl", false),
@@ -86,6 +85,7 @@ CMPlugin::CMPlugin() :
 	// chat settings
 	bOpenInDefault(CHAT_MODULE, "DefaultContainer", true),
 	bCreateWindowOnHighlight(CHAT_MODULE, "CreateWindowOnHighlight", false),
+	bApplyPrivateSettings(CHAT_MODULE, "ApplyPrivateSettings", false),
 	bBBCodeInPopups(CHAT_MODULE, "BBCodeInPopups", false),
 	bClassicIndicators(CHAT_MODULE, "ClassicIndicators", false),
 	bLogClassicIndicators(CHAT_MODULE, "LogClassicIndicators", false),

@@ -17,6 +17,11 @@
 
 static void RemoveReminderSystemEvent(struct REMINDERDATA *p);
 
+enum REPEAT
+{
+	NONE = 0, DAILY = 1, WEEKLY = 2, MONTHLY = 3
+};
+
 struct REMINDERDATA : public MZeroedObject
 {
 	HWND handle;
@@ -26,8 +31,8 @@ struct REMINDERDATA : public MZeroedObject
 	UINT RepeatSound;
 	UINT RepeatSoundTTL;
 	int  SoundSel;			// -1 if sound disabled
+	int  RepeatMode;
 	bool bVisible;
-	bool bRepeat;
 	bool bSystemEventQueued;
 
 	REMINDERDATA()
@@ -153,8 +158,8 @@ void JustSaveReminders(void)
 		szValue.Format("X%u:%I64x", pReminder->uid, pReminder->When / FILETIME_TICKS_PER_SEC);
 
 		// repeat
-		if (pReminder->bRepeat)
-			szValue.AppendFormat("\033""%u:%u", DATATAG_REPEAT, (int)pReminder->bRepeat);
+		if (pReminder->RepeatMode)
+			szValue.AppendFormat("\033""%u:%u", DATATAG_REPEAT, pReminder->RepeatMode);
 
 		// sound repeat
 		if (pReminder->RepeatSound)
@@ -232,7 +237,7 @@ static bool LoadReminder(char *Value)
 			break;
 
 		case DATATAG_REPEAT:
-			TempRem->bRepeat = strtol(TVal, nullptr, 10) != 0;
+			TempRem->RepeatMode = strtol(TVal, nullptr, 10) != 0;
 			break;
 		}
 	}
@@ -1073,14 +1078,14 @@ class CReminderNotifyDlg : public CReminderBaseDlg
 	CCtrlEdit edtText;
 	CCtrlCheck chkAfter, chkOnDate;
 	CCtrlCombo cmbRemindAgainIn;
-	CCtrlButton btnDismiss, btnNone, btnRemindAgain;
+	CCtrlButton btnDismiss, btnCreateNote, btnRemindAgain;
 
 public:
 	CReminderNotifyDlg(REMINDERDATA *pReminder) :
 		CSuper(IDD_NOTIFYREMINDER),
 		m_pReminder(pReminder),
-		btnNone(this, IDC_NONE),
 		btnDismiss(this, IDC_DISMISS),
+		btnCreateNote(this, IDC_CREATE_NOTE),
 		btnRemindAgain(this, IDC_REMINDAGAIN),
 		edtText(this, IDC_REMDATA),
 		chkAfter(this, IDC_AFTER),
@@ -1094,8 +1099,8 @@ public:
 
 		cmbRemindAgainIn.OnKillFocus = Callback(this, &CReminderNotifyDlg::onKillFocus_RemindAgain);
 
-		btnNone.OnClick = Callback(this, &CReminderNotifyDlg::onClick_None);
 		btnDismiss.OnClick = Callback(this, &CReminderNotifyDlg::onClick_Dismiss);
+		btnCreateNote.OnClick = Callback(this, &CReminderNotifyDlg::onClick_CreateNote);
 		btnRemindAgain.OnClick = Callback(this, &CReminderNotifyDlg::onClick_RemindAgain);
 	}
 
@@ -1116,11 +1121,10 @@ public:
 		chkAfter.SetState(true);
 		chkOnDate.SetState(false);
 
-		if (m_pReminder->bRepeat) {
+		if (m_pReminder->RepeatMode) {
 			chkOnDate.Hide();
 			chkAfter.Disable();
 			cmbRemindAgainIn.Disable();
-			cmbRemindAgainIn.SetCurSel(16);
 		}
 
 		edtText.SendMsg(EM_LIMITTEXT, MAX_REMINDER_LEN, 0);
@@ -1205,7 +1209,31 @@ public:
 			ULONGLONG li;
 			SystemTimeToFileTime(&tm, (FILETIME*)&li);
 
-			int TT = cmbRemindAgainIn.GetCurData() * 60;
+			int TT;
+			switch (m_pReminder->RepeatMode) {
+			case REPEAT::DAILY:
+				TT = 24 * 60 * 60;
+				break;
+			case REPEAT::WEEKLY:
+				TT = 7 * 24 * 60 * 60;
+				break;
+			case REPEAT::MONTHLY:
+				{	SYSTEMTIME tm2 = tm;
+					if (tm2.wMonth == 12)
+						tm2.wYear++, tm2.wMonth = 1;
+					else
+						tm2.wMonth++;
+
+					ULONGLONG li2;
+					SystemTimeToFileTime(&tm2, (FILETIME *)&li2);
+					TT = int((li2 - li) / FILETIME_TICKS_PER_SEC);
+				}
+				break;
+			default:
+				TT = cmbRemindAgainIn.GetCurData() * 60;
+				break;
+			}
+
 			if (TT >= 24 * 3600) {
 				// selection is 1 day or more, take daylight saving boundaries into consideration
 				// (ie. 24 hour might actually be 23 or 25, in order for reminder to pop up at the
@@ -1229,7 +1257,7 @@ public:
 			}
 
 			// reset When from the current time
-			if (!m_pReminder->bRepeat)
+			if (!m_pReminder->RepeatMode)
 				m_pReminder->When = li;
 			m_pReminder->When += (TT * FILETIME_TICKS_PER_SEC);
 		}
@@ -1253,7 +1281,7 @@ public:
 		Close();
 	}
 
-	void onClick_None(CCtrlButton*)
+	void onClick_CreateNote(CCtrlButton*)
 	{
 		// create note from reminder
 		NewNote(0, 0, -1, -1, ptrW(edtText.GetText()), nullptr, TRUE, TRUE, 0);
@@ -1288,8 +1316,7 @@ class CReminderFormDlg : public CReminderBaseDlg
 	REMINDERDATA *m_pReminder;
 
 	CCtrlEdit edtText;
-	CCtrlCheck chkRepeat;
-	CCtrlCombo cmbSound, cmbRepeat;
+	CCtrlCombo cmbMode, cmbSound, cmbRepeatSnd;
 	CCtrlButton btnAdd, btnView, btnPlaySound;
 
 public:
@@ -1300,9 +1327,9 @@ public:
 		btnView(this, IDC_VIEWREMINDERS),
 		btnPlaySound(this, IDC_BTN_PLAYSOUND),
 		edtText(this, IDC_REMINDER),
-		chkRepeat(this, IDC_CHECK_REPEAT),
+		cmbMode(this, IDC_REPEAT_MODE),
 		cmbSound(this, IDC_COMBO_SOUND),
-		cmbRepeat(this, IDC_COMBO_REPEATSND)
+		cmbRepeatSnd(this, IDC_COMBO_REPEATSND)
 	{
 		btnAdd.OnClick = Callback(this, &CReminderFormDlg::onClick_Add);
 		btnView.OnClick = Callback(this, &CReminderFormDlg::onClick_View);
@@ -1313,18 +1340,27 @@ public:
 
 	bool OnInitDialog() override
 	{
-		SYSTEMTIME tm;
+		// populate repeat mode combo
+		cmbMode.AddString(TranslateT("Don't repeat"), REPEAT::NONE);
+		cmbMode.AddString(TranslateT("Repeat daily"), REPEAT::DAILY);
+		cmbMode.AddString(TranslateT("Repeat weekly"), REPEAT::WEEKLY);
+		cmbMode.AddString(TranslateT("Repeat monthly"), REPEAT::MONTHLY);
 
+		SYSTEMTIME tm;
+		// opening the edit reminder dialog (uses same dialog resource as add reminder)
 		if (m_pReminder) {
-			// opening the edit reminder dialog (uses same dialog resource as add reminder)
 			SetWindowText(m_hwnd, TranslateT("Reminder"));
 			SetDlgItemText(m_hwnd, IDC_ADDREMINDER, TranslateT("&Update Reminder"));
 			btnView.Hide();
+
+			cmbMode.SetCurSel(m_pReminder->RepeatMode);
 
 			m_savedLi = m_pReminder->When;
 			FileTimeToSystemTime((FILETIME*)&m_savedLi, &tm);
 		}
 		else {
+			cmbMode.SetCurSel(0);
+
 			GetSystemTime(&tm);
 			SystemTimeToFileTime(&tm, (FILETIME*)&m_savedLi);
 		}
@@ -1356,32 +1392,32 @@ public:
 		wchar_t *lpszSeconds = TranslateT("Seconds");
 
 		// NOTE: use multiples of REMINDER_UPDATE_INTERVAL_SHORT (currently 5 seconds)
-		cmbRepeat.AddString(TranslateT("Never"), 0);
+		cmbRepeatSnd.AddString(TranslateT("Never"), 0);
 
 		mir_snwprintf(s, L"%s 5 %s", lpszEvery, lpszSeconds);
-		cmbRepeat.AddString(s, 5);
+		cmbRepeatSnd.AddString(s, 5);
 
 		mir_snwprintf(s, L"%s 10 %s", lpszEvery, lpszSeconds);
-		cmbRepeat.AddString(s, 10);
+		cmbRepeatSnd.AddString(s, 10);
 
 		mir_snwprintf(s, L"%s 15 %s", lpszEvery, lpszSeconds);
-		cmbRepeat.AddString(s, 15);
+		cmbRepeatSnd.AddString(s, 15);
 
 		mir_snwprintf(s, L"%s 20 %s", lpszEvery, lpszSeconds);
-		cmbRepeat.AddString(s, 20);
+		cmbRepeatSnd.AddString(s, 20);
 
 		mir_snwprintf(s, L"%s 30 %s", lpszEvery, lpszSeconds);
-		cmbRepeat.AddString(s, 30);
+		cmbRepeatSnd.AddString(s, 30);
 
 		mir_snwprintf(s, L"%s 60 %s", lpszEvery, lpszSeconds);
-		cmbRepeat.AddString(s, 60);
+		cmbRepeatSnd.AddString(s, 60);
 
 		if (m_pReminder && m_pReminder->RepeatSound) {
 			mir_snwprintf(s, L"%s %d %s", lpszEvery, m_pReminder->RepeatSound, lpszSeconds);
-			cmbRepeat.SetText(s);
-			cmbRepeat.SetCurSel(cmbRepeat.FindString(s, -1, true));
+			cmbRepeatSnd.SetText(s);
+			cmbRepeatSnd.SetCurSel(cmbRepeatSnd.FindString(s, -1, true));
 		}
-		else cmbRepeat.SetCurSel(0);
+		else cmbRepeatSnd.SetCurSel(0);
 
 		// populate sound selection combo
 		cmbSound.AddString(TranslateT("Default"), 0);
@@ -1400,7 +1436,7 @@ public:
 
 		if (m_pReminder && m_pReminder->SoundSel) {
 			btnPlaySound.Enable(m_pReminder->SoundSel >= 0);
-			cmbRepeat.Enable(m_pReminder->SoundSel >= 0);
+			cmbRepeatSnd.Enable(m_pReminder->SoundSel >= 0);
 		}
 
 		if (m_pReminder)
@@ -1424,7 +1460,7 @@ public:
 		if (!GetTriggerTime(m_savedLi, Date))
 			return;
 
-		int RepeatSound = cmbRepeat.GetCurData();
+		int RepeatSound = cmbRepeatSnd.GetCurData();
 		if (RepeatSound == -1)
 			RepeatSound = 0;
 
@@ -1435,7 +1471,7 @@ public:
 			TempRem->uid = CreateUid();
 			SystemTimeToFileTime(&Date, (FILETIME*)&TempRem->When);
 			TempRem->wszText = ptrW(edtText.GetText());
-			TempRem->bRepeat = chkRepeat.GetState();
+			TempRem->RepeatMode = cmbMode.GetCurData();
 			TempRem->SoundSel = cmbSound.GetCurData();
 			TempRem->RepeatSound = TempRem->SoundSel < 0 ? 0 : (UINT)RepeatSound;
 			InsertReminder(TempRem);
@@ -1446,7 +1482,7 @@ public:
 			SystemTimeToFileTime(&Date, (FILETIME*)&m_pReminder->When);
 
 			m_pReminder->wszText = ptrW(edtText.GetText());
-			m_pReminder->bRepeat = chkRepeat.GetState();
+			m_pReminder->RepeatMode = cmbMode.GetCurData();
 			m_pReminder->SoundSel = cmbSound.GetCurData();
 			m_pReminder->RepeatSound = m_pReminder->SoundSel < 0 ? 0 : (UINT)RepeatSound;
 
@@ -1489,7 +1525,7 @@ public:
 	{
 		int n = cmbSound.GetCurData();
 		btnPlaySound.Enable(n >= 0);
-		cmbRepeat.Enable(n >= 0);
+		cmbRepeatSnd.Enable(n >= 0);
 	}
 };
 

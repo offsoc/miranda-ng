@@ -165,7 +165,6 @@ CVkOptionAccountForm::CVkOptionAccountForm(CVkProto *proto) :
 	m_hlLink(this, IDC_URL, "https://vk.com/"),
 	m_edtGroupName(this, IDC_GROUPNAME),
 	m_cbxVKLang(this, IDC_COMBO_LANGUAGE),
-	m_cbDelivery(this, IDC_DELIVERY),
 	m_cbLoadLastMessageOnMsgWindowsOpen(this, IDC_LASTHISTORYLOAD),
 	m_cbUseLocalTime(this, IDC_USE_LOCAL_TIME),
 	m_cbLoadOnlyFriends(this, IDC_LOADONLYFRIENDS),
@@ -174,7 +173,6 @@ CVkOptionAccountForm::CVkOptionAccountForm(CVkProto *proto) :
 {
 	CreateLink(m_edtLogin, "Login", L"");
 	CreateLink(m_edtGroupName, m_proto->m_vkOptions.pwszDefaultGroup);
-	CreateLink(m_cbDelivery, m_proto->m_vkOptions.bServerDelivery);
 	CreateLink(m_cbLoadLastMessageOnMsgWindowsOpen, m_proto->m_vkOptions.bLoadLastMessageOnMsgWindowsOpen);
 	CreateLink(m_cbUseLocalTime, m_proto->m_vkOptions.bUseLocalTime);
 	CreateLink(m_cbLoadOnlyFriends, m_proto->m_vkOptions.bLoadOnlyFriends);
@@ -448,7 +446,6 @@ CVkOptionViewForm::CVkOptionViewForm(CVkProto *proto) :
 	m_cbBBCForAttachmentsAdvanced(this, IDC_ATTBBC_ADV),
 	m_cbStikersAsSmyles(this, IDC_STICKERS_AS_SMYLES),
 	m_cbShortenLinksForAudio(this, IDC_SHOTEN_LINKS_FOR_AUDIO),
-	m_cbAddMessageLinkToMesWAtt(this, IDC_ADD_MES_LINK_MES_ATT),
 	m_cbUseNonStandardNotifications(this, IDC_USENOSTDPOPUPS),
 	m_cbShowBeforeEditedPostVersion(this, IDC_ADD_ORIG_VER_IN_EDITED_MES)
 {
@@ -456,7 +453,6 @@ CVkOptionViewForm::CVkOptionViewForm(CVkProto *proto) :
 	CreateLink(m_cbUseBBCOnAttacmentsAsNews, m_proto->m_vkOptions.bUseBBCOnAttacmentsAsNews);
 	CreateLink(m_cbStikersAsSmyles, m_proto->m_vkOptions.bStikersAsSmileys);
 	CreateLink(m_cbShortenLinksForAudio, m_proto->m_vkOptions.bShortenLinksForAudio);
-	CreateLink(m_cbAddMessageLinkToMesWAtt, m_proto->m_vkOptions.bAddMessageLinkToMesWAtt);
 	CreateLink(m_cbUseNonStandardNotifications, m_proto->m_vkOptions.bUseNonStandardNotifications);
 	CreateLink(m_cbShowBeforeEditedPostVersion, m_proto->m_vkOptions.bShowBeforeEditedPostVersion);
 

@@ -22,6 +22,8 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <m_NewStory.h>
 #include <m_messagestate.h>
 
+MIR_APP_EXPORT CMOption<uint8_t> Srmm::iHistoryMode(SRMM_MODULE, "LoadHistory", LOADHISTORY_COUNT);
+
 HCURSOR g_hCurHyperlinkHand;
 HANDLE hHookIconsChanged, hHookIconPressedEvt, hHookSrmmEvent;
 
@@ -176,8 +178,24 @@ void SrmmModulesLoaded()
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
+static HOTKEYDESC srmmHotkeys[] = {
+	{ "srmm_bold",     LPGEN("Toggle bold formatting"),      BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'B'), 0, SRMM_HK_BOLD },
+	{ "srmm_italic",   LPGEN("Toggle italic formatting"),    BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'I'), 0, SRMM_HK_ITALIC },
+	{ "srmm_under",    LPGEN("Toggle underline formatting"), BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'U'), 0, SRMM_HK_UNDERLINE },
+	{ "srmm_color",    LPGEN("Toggle text color"),           BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'K'), 0, SRMM_HK_COLOR },
+	{ "srmm_bkcolor",  LPGEN("Toggle background color"),     BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'L'), 0, SRMM_HK_BKCOLOR },
+	{ "srmm_clear",    LPGEN("Clear formatting"),            BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, VK_SPACE), 0, SRMM_HK_CLEAR },
+	{ "srmm_history",  LPGEN("Open history window"),         BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'H'), 0, SRMM_HK_HISTORY},
+	{ "srmm_filter",   LPGEN("Toggle filter"),               BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL, 'F'), 0, SRMM_HK_FILTERTOGGLE },
+	{ "srmm_nicklist", LPGEN("Toggle nick list"),            BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL | HOTKEYF_SHIFT, 'N'), 0, SRMM_HK_LISTTOGGLE },
+	{ "srmm_cmgr",     LPGEN("Channel manager"),             BB_HK_SECTION, nullptr, HOTKEYCODE(HOTKEYF_CONTROL | HOTKEYF_SHIFT, 'O'), 0, SRMM_HK_CHANNELMGR },
+};
+
 int LoadSrmmModule()
 {
+	for (auto &it : srmmHotkeys)
+		g_plugin.addHotkey(&it);
+
 	g_hCurHyperlinkHand = LoadCursor(nullptr, IDC_HAND);
 
 	LoadSrmmToolbarModule();

@@ -40,7 +40,11 @@
 #include "version.h"
 
 #include "protobuf-c/steammessages_auth.steamclient.pb-c.h"
+#include "protobuf-c/steammessages_chat.steamclient.pb-c.h"
+#include "protobuf-c/steammessages_clientserver.pb-c.h"
 #include "protobuf-c/steammessages_clientserver_login.pb-c.h"
+#include "protobuf-c/steammessages_friendmessages.steamclient.pb-c.h"
+#include "protobuf-c/steammessages_notifications.steamclient.pb-c.h"
 #include "proto.h"
 
 #define MODULE "Steam"
@@ -64,23 +68,18 @@ extern HANDLE hExtraXStatus;
 #define STEAM_DB_GETEVENTTEXT_CHATSTATES    "/GetEventText2000"
 #define STEAM_DB_EVENT_CHATSTATES_GONE      1
 
-#define now() time(0)
-
 #include "steam_dialogs.h"
-#include "http_request.h"
 
 #include "api/enums.h"
 #include "steam_proto.h"
+#include "steam_utils.h"
 
 #include "api/app_info.h"
 #include "api/avatar.h"
 #include "api/captcha.h"
 #include "api/friend.h"
-#include "api/friend_list.h"
 #include "api/history.h"
-#include "api/message.h"
 #include "api/pending.h"
-#include "api/rsa_key.h"
 #include "api/search.h"
 #include "api/session.h"
 

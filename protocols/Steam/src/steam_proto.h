@@ -12,10 +12,21 @@
 #define DBKEY_HOSTS_COUNT  "HostsCount"
 #define DBKEY_HOSTS_DATE   "HostsDate"
 
-#define DBKEY_CLIENT_ID    "ClientID"
-#define DBKEY_STEAM_ID     "SteamID"
-#define DBKEY_ACCOUNT_NAME "Username"
-#define DBKEY_MACHINE_ID   "MachineId"
+#define DBKEY_CLIENT_ID     "ClientID"
+#define DBKEY_STEAM_ID      "SteamID"
+#define DBKEY_ACCOUNT_NAME  "Username"
+
+// Steam services
+#define PollAuthSessionStatus               "Authentication.PollAuthSessionStatus#1"
+#define GetPasswordRSAPublicKey             "Authentication.GetPasswordRSAPublicKey#1"
+#define BeginAuthSessionViaCredentials      "Authentication.BeginAuthSessionViaCredentials#1"
+#define UpdateAuthSessionWithSteamGuardCode "Authentication.UpdateAuthSessionWithSteamGuardCode#1"
+
+#define FriendSendMessage                   "FriendMessages.SendMessage#1"
+#define FriendGetActiveSessions             "FriendMessages.GetActiveMessageSessions#1"
+#define FriendGetIncomingMessage            "FriendMessagesClient.IncomingMessage#1"
+
+#define NotificationReceived                "SteamNotificationClient.NotificationsReceived#1"
 
 struct SendAuthParam
 {
@@ -38,7 +49,7 @@ enum
 };
 
 typedef void (CSteamProto::*MsgCallback)(const uint8_t *pBuf, size_t cbLen);
-typedef void (CSteamProto::*HttpCallback)(const HttpResponse &, void *);
+typedef void (CSteamProto::*HttpCallback)(const MHttpResponse &, void *);
 typedef void (CSteamProto::*JsonCallback)(const JSONNode &, void *);
 
 struct HttpRequest : public MTHttpRequest<CSteamProto>
@@ -59,8 +70,21 @@ struct ProtoRequest
    MsgCallback pCallback;
 };
 
+struct COwnMessage
+{
+	COwnMessage(MCONTACT _1, int _2) :
+		hContact(_1),
+		iMessageId(_2)
+	{}
+
+	int iMessageId, timestamp = 0;
+	MCONTACT hContact;
+	uint64_t iSourceId = -1;
+};
+
 class CSteamProto : public PROTO<CSteamProto>
 {
+	friend struct CMPlugin;
 	friend class CSteamGuardDialog;
 	friend class CSteamPasswordEditor;
 	friend class CSteamOptionsMain;
@@ -68,10 +92,32 @@ class CSteamProto : public PROTO<CSteamProto>
 	friend class PollRequest;
 	friend class WebSocket<CSteamProto>;
 
+	class CProtoImpl
+	{
+		friend class CSteamProto;
+		CSteamProto &m_proto;
+
+		CTimer m_heartBeat;
+
+		void OnHeartBeat(CTimer *)
+		{
+			m_proto.SendHeartBeat();
+		}
+
+		CProtoImpl(CSteamProto &pro) :
+			m_proto(pro),
+			m_heartBeat(Miranda_GetSystemWindow(), UINT_PTR(this)+1)
+		{
+			m_heartBeat.OnEvent = Callback(this, &CProtoImpl::OnHeartBeat);
+		}
+	}
+		m_impl;
+
 	ptrW m_password;
 	bool m_bTerminated;
-	HWND m_hwndGuard;
 	time_t m_idleTS;
+	uint64_t m_iSteamId, m_iClientId, m_iSessionId;
+	MBinBuffer m_requestId;
 
 	int64_t  GetId(const char *pszSetting);
 	void     SetId(const char *pszSetting, int64_t id);
@@ -85,7 +131,6 @@ class CSteamProto : public PROTO<CSteamProto>
 	ULONG hMessageProcess = 1;
 	mir_cs m_addContactLock;
 	mir_cs m_setStatusLock;
-	std::map<HANDLE, time_t> m_mpOutMessages;
 
 	// connection
 	WebSocket<CSteamProto> *m_ws;
@@ -93,50 +138,69 @@ class CSteamProto : public PROTO<CSteamProto>
 	void __cdecl ServerThread(void *);
 	bool ServerThreadStub(const char *szHost);
 
-   mir_cs m_csRequests;
-   OBJLIST<ProtoRequest> m_arRequests;
-
    void ProcessMulti(const uint8_t *buf, size_t cbLen);
    void ProcessMessage(const uint8_t *buf, size_t cbLen);
+	void ProcessServiceResponse(const uint8_t *buf, size_t cbLen, const CMsgProtoBufHeader &hdr);
 
 	void WSSend(EMsg msgType, const ProtobufCppMessage &msg);
+	void WSSendRaw(EMsg msgType, const MBinBuffer &buf);
 	void WSSendHeader(EMsg msgType, const CMsgProtoBufHeader &hdr, const ProtobufCppMessage &msg);
-	void WSSendService(const char *pszServiceName, const ProtobufCppMessage &msg, MsgCallback pCallback = 0);
+	int64_t WSSendService(const char *pszServiceName, const ProtobufCppMessage &msg, bool bAnon = false);
 
 	// requests
 	bool SendRequest(HttpRequest *request);
 	bool SendRequest(HttpRequest *request, HttpCallback callback, void *param = nullptr);
 	bool SendRequest(HttpRequest *request, JsonCallback callback, void *param = nullptr);
 
+	void SendHeartBeat();
+	void SendLogout();
+	void SendPersonaStatus(int iStatus);
+	void SendPollRequest();
+
 	// login
 	bool IsOnline();
-	bool IsMe(const char *steamId);
 
 	void Login();
-	void LoginFailed();
 	void Logout();
 
-   void OnAuthorization(const uint8_t *buf, size_t cbLen);
-	void OnGotRsaKey(const uint8_t *buf, size_t cbLen);
-	void OnLoggedOn(const uint8_t *buf, size_t cbLen);
-	void OnPollSession(const uint8_t *buf, size_t cbLen);
+	static INT_PTR CALLBACK EnterTotpCode(void *param);
+	static INT_PTR CALLBACK EnterEmailCode(void *param);
 
-	void OnGotCaptcha(const HttpResponse &response, void *arg);
-
-	void OnAuthorizationError(const JSONNode &root);
+	void OnBeginSession(const CAuthenticationBeginAuthSessionViaCredentialsResponse &pResponse, const CMsgProtoBufHeader &hdr);
+	void OnClientLogon(const CMsgClientLogonResponse &pResponse, const CMsgProtoBufHeader &hdr);
+	void OnClientLogoff(const CMsgClientLoggedOff &pResponse, const CMsgProtoBufHeader &hdr);
+	void OnGotRsaKey(const CAuthenticationGetPasswordRSAPublicKeyResponse &pResponse, const CMsgProtoBufHeader &hdr);
+	void OnGotConfirmationCode(const CAuthenticationUpdateAuthSessionWithSteamGuardCodeResponse &pResponse, const CMsgProtoBufHeader &hdr);
+	void OnPollSession(const CAuthenticationPollAuthSessionStatusResponse &pResponse, const CMsgProtoBufHeader &hdr);
 
 	void OnGotHosts(const JSONNode &root, void *);
 
 	void DeleteAuthSettings();
+	void SendConfirmationCode(bool, const char *pszCode);
+
+	// avatars
+	wchar_t *GetAvatarFilePath(MCONTACT hContact);
+	bool GetDbAvatarInfo(PROTO_AVATAR_INFORMATION &pai);
+	void CheckAvatarChange(MCONTACT hContact, const char *avatarHash);
+
+	INT_PTR __cdecl GetAvatarInfo(WPARAM, LPARAM);
+	INT_PTR __cdecl GetAvatarCaps(WPARAM, LPARAM);
+	INT_PTR __cdecl GetMyAvatar(WPARAM, LPARAM);
 
 	// contacts
 	void SetAllContactStatuses(int status);
 	void SetContactStatus(MCONTACT hContact, uint16_t status);
 
+	void SendUserInfoRequest(uint64_t id);
+	void SendUserInfoRequest(const std::vector<uint64_t> &ids);
+	
+	void SendUserAddRequest(uint64_t id);
+	void SendUserRemoveRequest(MCONTACT hContact);
+	void SendUserIgnoreRequest(MCONTACT hContact, bool bIgnore);
+
 	MCONTACT GetContactFromAuthEvent(MEVENT hEvent);
 
-	void UpdateContactDetails(MCONTACT hContact, const JSONNode &data);
-	void UpdateContactRelationship(MCONTACT hContact, const JSONNode &data);
+	void UpdateContactRelationship(MCONTACT hContact, FriendRelationship);
 	void OnGotAppInfo(const JSONNode &root, void *arg);
 
 	void ContactIsRemoved(MCONTACT hContact);
@@ -145,34 +209,23 @@ class CSteamProto : public PROTO<CSteamProto>
 	void ContactIsUnblocked(MCONTACT hContact);
 	void ContactIsAskingAuth(MCONTACT hContact);
 
-	MCONTACT GetContact(const char *steamId);
-	MCONTACT AddContact(const char *steamId, const wchar_t *nick = nullptr, bool isTemporary = false);
+	void OnGotFriendList(const CMsgClientFriendsList &reply, const CMsgProtoBufHeader &hdr);
+	void OnGotFriendInfo(const CMsgClientPersonaState &reply, const CMsgProtoBufHeader &hdr);
 
-	void OnGotFriendList(const JSONNode &root, void *);
+	MCONTACT GetContact(int64_t steamId);
+	MCONTACT AddContact(int64_t steamId, const wchar_t *nick = nullptr, bool isTemporary = false);
+
 	void OnGotBlockList(const JSONNode &root, void *);
-	void OnGotUserSummaries(const JSONNode &root, void *);
-	void OnGotAvatar(const HttpResponse &response, void *arg);
-
-	void OnFriendAdded(const HttpResponse &response, void *arg);
-	void OnFriendBlocked(const HttpResponse &response, void *arg);
-	void OnFriendUnblocked(const HttpResponse &response, void *arg);
-	void OnFriendRemoved(const HttpResponse &response, void *arg);
-
-	void OnAuthRequested(const JSONNode &root, void *arg);
+	void OnGotAvatar(const MHttpResponse &response, void *arg);
 
 	void OnPendingApproved(const JSONNode &root, void *arg);
 	void OnPendingIgnoreded(const JSONNode &root, void *arg);
 
-	void OnSearchResults(const HttpResponse &response, void *arg);
-	void OnSearchByNameStarted(const HttpResponse &response, void *arg);
-
-	// messages
-	int OnSendMessage(MCONTACT hContact, const char *message);
-	void OnMessageSent(const HttpResponse &response, void *arg);
-	int __cdecl OnPreCreateMessage(WPARAM, LPARAM lParam);
+	void OnSearchResults(const MHttpResponse &response, void *arg);
+	void OnSearchByNameStarted(const MHttpResponse &response, void *arg);
 
 	// history
-	void OnGotConversations(const JSONNode &root, void *arg);
+	void OnGotConversations(const CFriendsMessagesGetActiveMessageSessionsResponse &reply, const CMsgProtoBufHeader &hdr);
 	void OnGotHistoryMessages(const JSONNode &root, void *);
 
 	// menus
@@ -193,14 +246,19 @@ class CSteamProto : public PROTO<CSteamProto>
 
 	void OnInitStatusMenu();
 
-	// avatars
-	wchar_t *GetAvatarFilePath(MCONTACT hContact);
-	bool GetDbAvatarInfo(PROTO_AVATAR_INFORMATION &pai);
-	void CheckAvatarChange(MCONTACT hContact, std::string avatarUrl);
+	// notifications
+	void OnGotNotification(const CSteamNotificationNotificationsReceivedNotification &reply, const CMsgProtoBufHeader &hdr);
 
-	INT_PTR __cdecl GetAvatarInfo(WPARAM, LPARAM);
-	INT_PTR __cdecl GetAvatarCaps(WPARAM, LPARAM);
-	INT_PTR __cdecl GetMyAvatar(WPARAM, LPARAM);
+	// messages
+	mir_cs m_csOwnMessages;
+	OBJLIST<COwnMessage> m_arOwnMessages;
+
+	int64_t SendFriendMessage(EChatEntryType, int64_t steamId, const char *pszMessage);
+	void OnGotIncomingMessage(const CFriendMessagesIncomingMessageNotification &reply, const CMsgProtoBufHeader &hdr);
+	void OnMessageSent(const CFriendMessagesSendMessageResponse &reply, const CMsgProtoBufHeader &hdr);
+	int __cdecl OnPreCreateMessage(WPARAM, LPARAM lParam);
+
+	void SendFriendActiveSessions();
 
 	// xstatuses
 	INT_PTR  __cdecl OnGetXStatusEx(WPARAM wParam, LPARAM lParam);
@@ -214,13 +272,6 @@ class CSteamProto : public PROTO<CSteamProto>
 	// events
 	int __cdecl OnIdleChanged(WPARAM, LPARAM);
 	int __cdecl OnOptionsInit(WPARAM wParam, LPARAM lParam);
-
-	// utils
-	static uint16_t SteamToMirandaStatus(PersonaState state);
-	static PersonaState MirandaToSteamState(int status);
-		
-	static void ShowNotification(const wchar_t *message, int flags = 0, MCONTACT hContact = NULL);
-	static void ShowNotification(const wchar_t *caption, const wchar_t *message, int flags = 0, MCONTACT hContact = NULL);
 
 	INT_PTR __cdecl OnGetEventTextChatStates(WPARAM wParam, LPARAM lParam);
 
@@ -239,20 +290,6 @@ class CSteamProto : public PROTO<CSteamProto>
 
 		// ... or we can report real idle info
 		// return m_idleTS ? time(0) - m_idleTS : 0;
-	}
-
-	inline const char *AccountIdToSteamId(long long accountId)
-	{
-		static char steamId[20];
-		mir_snprintf(steamId, "%llu", accountId + 76561197960265728ll);
-		return steamId;
-	}
-
-	inline const char *SteamIdToAccountId(long long steamId)
-	{
-		static char accountId[10];
-		mir_snprintf(accountId, "%llu", steamId - 76561197960265728ll);
-		return accountId;
 	}
 
 public:
@@ -297,12 +334,19 @@ struct CMPlugin : public ACCPROTOPLUGIN<CSteamProto>
 {
 	CMPlugin();
 
+	void InitSteamServices();
+
+	std::map<EMsg, const ProtobufCMessageDescriptor *> messages;
+	std::map<std::string, const ProtobufCServiceDescriptor *> services;
+
+	typedef void (CSteamProto:: *ServiceResponseHandler)(const ProtobufCMessage &msg, const CMsgProtoBufHeader &hdr);
+	std::map<EMsg, ServiceResponseHandler> messageHandlers;
+	std::map<std::string, ServiceResponseHandler> serviceHandlers;
+
 	int Load() override;
 };
 
 int OnReloadIcons(WPARAM wParam, LPARAM lParam);
 void SetContactExtraIcon(MCONTACT hContact, int status);
-
-MBinBuffer RsaEncrypt(const char *pszModulus, const char *exponent, const char *data);
 
 #endif //_STEAM_PROTO_H_

@@ -19,6 +19,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 void CTelegramProto::OnEndSession(td::ClientManager::Response&)
 {
+	m_bUnregister = false;
 	m_bTerminated = true;
 	delSetting(DBKEY_AUTHORIZED);
 }
@@ -325,6 +326,10 @@ void CTelegramProto::ProcessResponse(td::ClientManager::Response response)
 		ProcessScopeNotification((TD::updateScopeNotificationSettings *)response.object.get());
 		break;
 
+	case TD::updateServiceNotification::ID:
+		ProcessServiceNotification((TD::updateServiceNotification *)response.object.get());
+		break;
+
 	case TD::updateSupergroup::ID:
 		ProcessSuperGroup((TD::updateSupergroup *)response.object.get());
 		break;
@@ -497,15 +502,20 @@ INT_PTR CTelegramProto::SvcLoadServerHistory(WPARAM hContact, LPARAM)
 		lastMsgId = dbei2id(dbei);
 	}
 
+	auto userId = GetId(hContact);
+
 	if (TD::int53 threadId = GetId(hContact, DBKEY_THREAD)) {
-		auto chatId = GetId(hContact);
-		auto *pUser = new TG_USER(-1, hContact, true);
-		pUser->chatId = chatId;
-		pUser->isForum = pUser->isGroupChat = true;
-		pUser->nHistoryChunks = 5;
-		SendQuery(new TD::getMessageThreadHistory(chatId, lastMsgId, lastMsgId, 0, 100), &CTelegramProto::OnGetHistory, pUser);
+		if (FindChat(userId)) {
+			auto *pUser = new TG_USER(-1, hContact, true);
+			pUser->chatId = userId;
+			pUser->isForum = pUser->isGroupChat = true;
+			pUser->nHistoryChunks = 5;
+			SendQuery(new TD::getMessageThreadHistory(pUser->chatId, lastMsgId, lastMsgId, 0, 100), &CTelegramProto::OnGetHistory, pUser);
+			return 0;
+		}
 	}
-	else if (auto *pUser = FindUser(GetId(hContact))) {
+	
+	if (auto *pUser = FindUser(userId)) {
 		pUser->nHistoryChunks = 5;
 		SendQuery(new TD::getChatHistory(pUser->chatId, lastMsgId, 0, 100, false), &CTelegramProto::OnGetHistory, pUser);
 	}
@@ -515,12 +525,16 @@ INT_PTR CTelegramProto::SvcLoadServerHistory(WPARAM hContact, LPARAM)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-INT_PTR CTelegramProto::SvcCanEmptyHistory(WPARAM hContact, LPARAM)
+INT_PTR CTelegramProto::SvcCanEmptyHistory(WPARAM hContact, LPARAM bIncoming)
 {
 	if (auto *pUser = FindUser(GetId(hContact))) {
 		TG_SUPER_GROUP tmp(pUser->id, 0);
 		if (auto *pGroup = m_arSuperGroups.find(&tmp))
-			return !pGroup->group->is_channel_;
+			if (pGroup->group->is_channel_)
+				return 0;
+
+		if (!pUser->bDelOwn || (bIncoming && !pUser->bDelAll))
+			return 0;
 		
 		return 1;
 	}
@@ -581,6 +595,8 @@ void CTelegramProto::ProcessChat(TD::updateNewChat *pObj)
 
 	pUser->chatId = pChat->id_;
 	pUser->isChannel = isChannel;
+	pUser->bDelAll = pChat->can_be_deleted_for_all_users_;
+	pUser->bDelOwn = pChat->can_be_deleted_only_for_self_;
 
 	MCONTACT hContact = (pUser->id == m_iOwnId) ? 0 : pUser->hContact;
 
@@ -588,8 +604,13 @@ void CTelegramProto::ProcessChat(TD::updateNewChat *pObj)
 		m_arChats.insert(pUser);
 
 	if (!szTitle.empty()) {
-		if (hContact != INVALID_CONTACT_ID)
-			GcChangeTopic(pUser, szTitle);
+		if (hContact != INVALID_CONTACT_ID) {
+			if (pUser->isForum) {
+				pUser->wszNick = Utf2T(szTitle.c_str());
+				SendQuery(new TD::getForumTopics(pUser->chatId, "", 0, 0, 0, 100));
+			}
+			else GcChangeTopic(pUser, szTitle);
+		}
 		else if (pUser->wszNick.IsEmpty())
 			pUser->wszFirstName = Utf2T(szTitle.c_str());
 	}
@@ -627,9 +648,38 @@ void CTelegramProto::ProcessChatAction(TD::updateChatAction *pObj)
 		return;
 	}
 
+	auto hContact = GetRealContact(pChat);
 	switch (pObj->action_->get_id()) {
+	case TD::chatActionRecordingVideo::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Recording video..."));
+		break;
+	case TD::chatActionRecordingVideoNote::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Recording video note..."));
+		break;
+	case TD::chatActionRecordingVoiceNote::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Recording voice note..."));
+		break;
+	case TD::chatActionUploadingDocument::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Uploading file..."));
+		break;
+	case TD::chatActionUploadingPhoto::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Uploading photo..."));
+		break;
+	case TD::chatActionUploadingVideo::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Uploading video..."));
+		break;
+	case TD::chatActionUploadingVideoNote::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Uploading video note..."));
+		break;
+	case TD::chatActionUploadingVoiceNote::ID:
+		Srmm_SetStatusText(hContact, TranslateT("Uploading voice note..."));
+		break;
 	case TD::chatActionTyping::ID:
-		CallService(MS_PROTO_CONTACTISTYPING, pChat->hContact, 1);
+		CallService(MS_PROTO_CONTACTISTYPING, pChat->hContact, 30);
+		break;
+	case TD::chatActionCancel::ID:
+		Srmm_SetStatusText(hContact, 0);
+		CallService(MS_PROTO_CONTACTISTYPING, pChat->hContact, PROTOTYPE_CONTACTTYPING_OFF);
 		break;
 	}
 }
@@ -1059,7 +1109,7 @@ void CTelegramProto::ProcessOption(TD::updateOption *pObj)
 		m_iOwnId = iValue;
 		SetId(0, m_iOwnId);
 
-		if (m_iSavedMessages != 0)
+		if (m_iSavedMessages != 0 || m_bUnregister)
 			return;
 
 		if (auto *pUser = FindUser(iValue)) {
@@ -1129,6 +1179,18 @@ void CTelegramProto::ProcessScopeNotification(TD::updateScopeNotificationSetting
 	}
 }
 
+void CTelegramProto::ProcessServiceNotification(TD::updateServiceNotification *pObj)
+{
+	if (pObj->content_->get_id() != TD::messageText::ID) {
+		debugLogA("Expected type %d, but got %d, ignored", TD::messageText::ID, pObj->content_->get_id());
+		return;
+	}
+
+	auto *pMessageText = (TD::messageText *)pObj->content_.get();
+	CMStringA szMessage(GetFormattedText(pMessageText->text_));
+	Popup(0, Utf2T(szMessage), TranslateT("Service notification"));
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 
 void CTelegramProto::ProcessStatus(TD::updateUserStatus *pObj)
@@ -1168,6 +1230,7 @@ void CTelegramProto::ProcessUser(TD::updateUser *pObj)
 		case TD::userTypeDeleted::ID:
 			return;
 
+		case TD::userTypeBot::ID:
 		case TD::userTypeRegular::ID:
 			auto *pu = AddFakeUser(pUser->id_, false);
 			if (pu->hContact != INVALID_CONTACT_ID)
@@ -1207,18 +1270,6 @@ void CTelegramProto::ProcessUser(TD::updateUser *pObj)
 		if (p != -1) {
 			szLastName = szFirstName.substr(p + 1);
 			szFirstName = szFirstName.substr(0, p);
-		}
-	}
-
-	// if that's just a bot, keep it as a virtual contact in memory
-	if (typeID == TD::userTypeBot::ID) {
-		auto *pu = AddFakeUser(pUser->id_, false);
-		if (pu->hContact == INVALID_CONTACT_ID) {
-			pu->wszFirstName = Utf2T(szFirstName.c_str());
-			pu->wszLastName = Utf2T(szLastName.c_str());
-			if (pUser->usernames_)
-				pu->wszNick = Utf2T(pUser->usernames_->editable_username_.c_str());
-			return;
 		}
 	}
 

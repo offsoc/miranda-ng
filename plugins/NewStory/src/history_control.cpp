@@ -67,6 +67,12 @@ NewstoryListData::NewstoryListData(HWND _1) :
 	iLineHeigth = GetFontHeight(g_fontTable[FONT_INMSG].lf);
 }
 
+NewstoryListData::~NewstoryListData()
+{
+	for (auto &it : m_protoIcons)
+		IcoLib_ReleaseIcon(it.second);
+}
+
 void NewstoryListData::onTimer_Draw(CTimer *pTimer)
 {
 	pTimer->Stop();
@@ -341,7 +347,7 @@ class CDeleteEventsDlg : public CDlgBase
 public:
 	bool bDelHistory = false, bForEveryone = false;
 
-	CDeleteEventsDlg(MCONTACT hContact, int nEvents) :
+	CDeleteEventsDlg(MCONTACT hContact, int nEvents, bool bIncoming) :
 		CDlgBase(g_plugin, IDD_EMPTYHISTORY),
 		m_hContact(hContact),
 		m_iNumEvents(nEvents),
@@ -349,7 +355,7 @@ public:
 		chkForEveryone(this, IDC_BOTH)
 	{
 		if (char *szProto = Proto_GetBaseAccountName(hContact)) {
-			bDelHistory = Proto_CanDeleteHistory(szProto, hContact);
+			bDelHistory = Proto_CanDeleteHistory(szProto, hContact, bIncoming);
 			bForEveryone = (CallProtoService(szProto, PS_GETCAPS, PFLAGNUM_4, hContact) & PF4_DELETEFORALL) != 0;
 		}
 	}
@@ -400,11 +406,18 @@ public:
 void NewstoryListData::DeleteItems(void)
 {
 	int nSelected = 0;
-	for (int i = totalCount - 1; i >= 0; i--)
-		if (GetItem(i)->m_bSelected)
-			nSelected++;
+	bool bIncoming = false;
 
-	CDeleteEventsDlg dlg(m_hContact, nSelected);
+	for (int i = totalCount - 1; i >= 0; i--) {
+		auto *pItem = GetItem(i);
+		if (pItem->m_bSelected) {
+			if ((pItem->dbe.flags & DBEF_SENT) == 0)
+				bIncoming = true;
+			nSelected++;
+		}
+	}
+
+	CDeleteEventsDlg dlg(m_hContact, nSelected, bIncoming);
 	if (IDOK == dlg.DoModal()) {
 		g_plugin.bDisableDelete = true;
 
@@ -727,23 +740,23 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 		auto *pItem = LoadItem(idx);
 		pItem->calcHeight(cachedWindowWidth); // ensure that the item's height is calculated
 
-		COLORREF clLine;
+		COLORREF clLine, clText, clBack;
 		int fontid, colorid;
 		pItem->getFontColor(fontid, colorid);
 
 		if (pItem->m_bHighlighted) {
-			webPage.clText = g_fontTable[FONT_HIGHLIGHT].cl;
-			webPage.clBack = g_colorTable[pItem->m_bSelected ? COLOR_SELBACK : COLOR_HIGHLIGHT_BACK].cl;
+			clText = g_fontTable[FONT_HIGHLIGHT].cl;
+			clBack = g_colorTable[pItem->m_bSelected ? COLOR_SELBACK : COLOR_HIGHLIGHT_BACK].cl;
 			clLine = g_colorTable[COLOR_FRAME].cl;
 		}
 		else if (pItem->m_bSelected && !bReadOnly) {
-			webPage.clText = g_colorTable[COLOR_SELTEXT].cl;
-			webPage.clBack = g_colorTable[COLOR_SELBACK].cl;
+			clText = g_colorTable[COLOR_SELTEXT].cl;
+			clBack = g_colorTable[COLOR_SELBACK].cl;
 			clLine = g_colorTable[COLOR_SELFRAME].cl;
 		}
 		else {
-			webPage.clText = g_fontTable[fontid].cl;
-			webPage.clBack = g_colorTable[colorid].cl;
+			clText = g_fontTable[fontid].cl;
+			clBack = g_colorTable[colorid].cl;
 			clLine = g_colorTable[COLOR_FRAME].cl;
 		}
 
@@ -759,7 +772,7 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 		}
 
 		// draw item background
-		HBRUSH hbr = CreateSolidBrush(webPage.clBack);
+		HBRUSH hbr = CreateSolidBrush(clBack);
 		RECT rc = { 0, top, cachedWindowWidth, top + iItemHeigth };
 		FillRect(dib, &rc, hbr);
 		DeleteObject(hbr);
@@ -767,10 +780,25 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 		SetBkMode(dib, TRANSPARENT);
 
 		// left offset of icons & text
-		int xPos = 2, yPos = top + 2, xRight = 0;
+		int xPos = 2, yPos = top + 2, xRight = 0, yOffset = 0;
 
 		if (!bReadOnly) {
 			HICON hIcon;
+
+			// Protocol icon
+			if (m_hContact == INVALID_CONTACT_ID) {
+				if (auto *pa = Proto_GetContactAccount(pItem->dbe.hContact)) {
+					if (m_protoIcons.count(pa->szModuleName))
+						hIcon = m_protoIcons[pa->szModuleName];
+					else {
+						hIcon = Skin_LoadProtoIcon(pa->szModuleName, ID_STATUS_ONLINE);
+						m_protoIcons[pa->szModuleName] = hIcon;
+					}
+
+					DrawIconEx(dib, xPos, yPos, hIcon, 16, 16, 0, 0, DI_NORMAL);
+					xPos += 18;
+				}
+			}
 
 			// Message type icon
 			if (g_plugin.bShowType) {
@@ -817,6 +845,7 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 					MoveToEx(dib, rc.left, rc.bottom - 4, 0);
 					LineTo(dib, rc.left + (rc.right - rc.left) * int(pItem->m_bOfflineDownloaded) / 100, rc.bottom - 4);
 					DeleteObject(SelectObject(dib, hpn));
+					yOffset = 4;
 				}
 			}
 
@@ -828,14 +857,14 @@ void NewstoryListData::Paint(simpledib::dib &dib)
 		}
 
 		// draw html itself
-		litehtml::position clip(xPos, yPos, cachedWindowWidth - xPos - xRight, iItemHeigth);
+		litehtml::position clip(xPos, yPos, cachedWindowWidth - xPos - xRight, iItemHeigth - yOffset);
 		if (auto &pDoc = pItem->m_doc) {
 			if (auto pBody = pDoc->root()->select_one("body")) {
 				litehtml::background back = pBody->css().get_bg();
-				back.m_color = litehtml::web_color(GetRValue(webPage.clBack), GetGValue(webPage.clBack), GetBValue(webPage.clBack));
+				back.m_color = litehtml::web_color(GetRValue(clBack), GetGValue(clBack), GetBValue(clBack));
 				pBody->css_w().set_bg(back);
 
-				pBody->css_w().set_color(litehtml::web_color(GetRValue(webPage.clText), GetGValue(webPage.clText), GetBValue(webPage.clText)));
+				pBody->css_w().set_color(litehtml::web_color(GetRValue(clText), GetGValue(clText), GetBValue(clText)));
 			}
 
 			pDoc->draw((UINT_PTR)dib.hdc(), xPos, yPos + iOffsetY, &clip);
@@ -886,22 +915,29 @@ void NewstoryListData::RecalcScrollBar()
 	if (totalCount == 0)
 		return;
 
-	int yTotal = 0, yTop = 0, numRec = 0;
+	int yTotal = 0, yTop = 0, yVis = 0, numRec = 0;
 	for (int i = 0; i < totalCount; i++) {
 		if (i == scrollTopItem)
 			yTop = yTotal - scrollTopPixel;
 
 		auto *pItem = GetItem(i);
 		if (pItem->m_bLoaded) {
-			yTotal += GetItemHeight(pItem);
 			numRec++;
+
+			int iHeight = GetItemHeight(pItem);
+			yTotal += iHeight;
+			if (i >= scrollTopItem)
+				yVis += iHeight;
 		}
 	}
 
 	if (numRec != totalCount) {
 		double averageH = double(yTotal) / double(numRec);
 		yTotal = totalCount * averageH;
-		yTop = scrollTopItem * averageH;
+		if (cachedMaxDrawnItem == totalCount - 1)
+			yTop = yTotal - ((scrollTopItem == 0) ? yVis : cachedWindowHeight);
+		else
+			yTop = scrollTopItem * averageH;
 	}
 
 	SCROLLINFO si = {};

@@ -2306,7 +2306,7 @@ CMsgDialog* TSAPI AutoCreateWindow(TContainerData *pContainer, MCONTACT hContact
 
 		if (szProto) {
 			int dwStatus = Proto_GetStatus(szProto);
-			if (dwStatus == 0 || dwStatus <= ID_STATUS_OFFLINE)
+			if (dwStatus == 0 || dwStatus <= ID_STATUS_OFFLINE || ((1 << (dwStatus - ID_STATUS_ONLINE)) & dwStatusMask))
 				bAllowAutoCreate = true;
 		}
 	}

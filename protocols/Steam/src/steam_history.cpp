@@ -1,16 +1,15 @@
 #include "stdafx.h"
 
-void CSteamProto::OnGotConversations(const JSONNode &root, void *)
+void CSteamProto::OnGotConversations(const CFriendsMessagesGetActiveMessageSessionsResponse &reply, const CMsgProtoBufHeader &hdr)
 {
-	if (root.isnull())
+	if (hdr.failed())
 		return;
 
-	const JSONNode &response = root["response"];
-	for (auto &session : response["message_sessions"]) {
-		long long accountId = _wtoi64(session["accountid_friend"].as_mstring());
+	for (int i=0; i < reply.n_message_sessions; i++) {
+		auto *session = reply.message_sessions[i];
 
-		const char *who = AccountIdToSteamId(accountId);
-		MCONTACT hContact = GetContact(who);
+		uint64_t steamId = session->accountid_friend;
+		MCONTACT hContact = GetContact(steamId);
 		if (!hContact)
 			continue;
 
@@ -19,12 +18,9 @@ void CSteamProto::OnGotConversations(const JSONNode &root, void *)
 		if (storedMessageTS == 0)
 			continue;
 
-		time_t lastMessageTS = _wtoi64(session["last_message"].as_mstring());
-		if (lastMessageTS > storedMessageTS) {
-			ptrA token(getStringA("TokenSecret"));
-			ptrA steamId(getStringA(DBKEY_STEAM_ID));
-			SendRequest(new GetHistoryMessagesRequest(token, steamId, who, storedMessageTS), &CSteamProto::OnGotHistoryMessages, (void*)hContact);
-		}
+		time_t lastMessageTS = session->last_message;
+		if (lastMessageTS > storedMessageTS)
+			SendRequest(new GetHistoryMessagesRequest(m_szAccessToken, m_iSteamId, steamId, storedMessageTS), &CSteamProto::OnGotHistoryMessages, (void*)hContact);
 	}
 }
 
@@ -43,7 +39,7 @@ void CSteamProto::OnGotHistoryMessages(const JSONNode &root, void *arg)
 		const JSONNode &message = messages[i - 1];
 
 		long long accountId = _wtoi64(message["accountid"].as_mstring());
-		const char *steamId = AccountIdToSteamId(accountId);
+		uint64_t steamId = AccountIdToSteamId(accountId);
 
 		json_string text = message["message"].as_string();
 
@@ -57,7 +53,7 @@ void CSteamProto::OnGotHistoryMessages(const JSONNode &root, void *arg)
 		dbei.timestamp = timestamp;
 		dbei.pBlob = (char *)text.c_str();
 
-		if (IsMe(steamId))
+		if (steamId == m_iSteamId)
 			dbei.flags = DBEF_SENT;
 
 		RecvMsg(hContact, dbei);

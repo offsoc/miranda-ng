@@ -17,153 +17,86 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #include "stdafx.h"
 
-void __cdecl CSteamProto::ServerThread(void *)
+void CSteamProto::OnGotNotification(const CSteamNotificationNotificationsReceivedNotification &reply, const CMsgProtoBufHeader &hdr)
 {
-	// load web socket servers first if needed
-	int iTimeDiff = db_get_dw(0, STEAM_MODULE, DBKEY_HOSTS_DATE);
-	int iHostCount = db_get_dw(0, STEAM_MODULE, DBKEY_HOSTS_COUNT);
-	if (!iHostCount || time(0) - iTimeDiff > 3600 * 24 * 7) { // once a week
-		if (!SendRequest(new GetHostsRequest(), &CSteamProto::OnGotHosts)) {
-			LoginFailed();
-			return;
-		}
+	if (hdr.eresult != 1)
+		return;
+
+	debugLogA("got %d notifications", reply.n_notifications);
+
+	for (int i = 0; i < reply.n_notifications; i++) {
+		auto *N = reply.notifications[i];
+		debugLogA("notification type %d: %s", N->notification_type, N->body_data);
 	}
-
-	srand(time(0));
-	m_ws = nullptr;
-
-	CMStringA szHost;
-	do {
-		szHost.Format("Host%d", rand() % iHostCount);
-		szHost = db_get_sm(0, STEAM_MODULE, szHost);
-		szHost.Insert(0, "wss://");
-		szHost += "/cmsocket/";
-	}
-	while (ServerThreadStub(szHost));
-}
-
-bool CSteamProto::ServerThreadStub(const char *szHost)
-{
-	WebSocket<CSteamProto> ws(this);
-
-	NLHR_PTR pReply(ws.connect(m_hNetlibUser, szHost));
-	if (pReply == nullptr) {
-		debugLogA("websocket connection failed");
-		return false;
-	}
-
-	if (pReply->resultCode != 101) {
-		debugLogA("websocket connection failed: %d", pReply->resultCode);
-		return false;
-	}
-
-	m_ws = &ws;
-
-	debugLogA("Websocket connection succeeded");
-
-	// Send init packets
-	Login();
-
-	ws.run();
-	m_ws = nullptr;
-	return false;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-void WebSocket<CSteamProto>::process(const uint8_t *buf, size_t cbLen)
+void CSteamProto::SendPersonaStatus(int status)
 {
-	uint32_t dwSign = *(uint32_t *)buf;
-	EMsg msgType = (EMsg)(dwSign & ~STEAM_PROTOCOL_MASK);
-
-	// now process the body
-	if (msgType == EMsg::Multi) {
-		buf += 8; cbLen -= 8;
-		p->ProcessMulti(buf, cbLen);
-	}
-	else p->ProcessMessage(buf, cbLen);
+	CMsgClientChangeStatus request;
+	request.persona_state = (int)MirandaToSteamState(status); request.has_persona_state = true;
+	WSSend(EMsg::ClientChangeStatus, request);
 }
 
-void CSteamProto::ProcessMulti(const uint8_t *buf, size_t cbLen)
+/////////////////////////////////////////////////////////////////////////////////////////
+
+void CSteamProto::SendFriendActiveSessions()
 {
-	proto::MsgMulti pMulti(buf, cbLen);
-	if (pMulti == nullptr) {
-		debugLogA("Unable to decode multi message, exiting");
-		return;
-	}
-
-	debugLogA("processing %s multi message of size %d", (pMulti->size_unzipped) ? "zipped" : "normal", pMulti->message_body.len);
-	
-	ptrA tmp;
-	if (pMulti->size_unzipped) {
-		tmp = (char *)mir_alloc(pMulti->size_unzipped + 1);
-		cbLen = FreeImage_ZLibGUnzip((uint8_t*)tmp.get(), pMulti->size_unzipped, pMulti->message_body.data, (unsigned)pMulti->message_body.len);
-		if (!cbLen) {
-			debugLogA("Unable to unzip multi message, exiting");
-			return;
-		}
-
-		buf = (const uint8_t *)tmp.get();
-	}
-	else {
-		buf = pMulti->message_body.data;
-		cbLen = pMulti->message_body.len;
-	}
-
-	while ((int)cbLen > 0) {
-		uint32_t cbPacketLen = *(uint32_t *)buf; buf += sizeof(uint32_t); cbLen -= sizeof(uint32_t);
-		ProcessMessage(buf, cbPacketLen);
-		buf += cbPacketLen; cbLen -= cbPacketLen;
-	}
+	CFriendsMessagesGetActiveMessageSessionsRequest request;
+	request.has_lastmessage_since = true;
+	request.has_only_sessions_with_messages = false; request.only_sessions_with_messages = true;
+	WSSendService(FriendGetActiveSessions, request);
 }
 
-void CSteamProto::ProcessMessage(const uint8_t *buf, size_t cbLen)
+/////////////////////////////////////////////////////////////////////////////////////////
+
+void CSteamProto::SendUserInfoRequest(uint64_t id)
 {
-	uint32_t dwSign = *(uint32_t *)buf; buf += sizeof(uint32_t); cbLen -= sizeof(uint32_t);
-	EMsg msgType = (EMsg)(dwSign & ~STEAM_PROTOCOL_MASK);
-	bool bIsProto = (dwSign & STEAM_PROTOCOL_MASK) != 0;
+	std::vector<uint64_t> ids;
+	ids.push_back(id & 0xFFFFFFFFll);
+	SendUserInfoRequest(ids);
+}
 
-	CMsgProtoBufHeader hdr;
+void CSteamProto::SendUserInfoRequest(const std::vector<uint64_t> &ids)
+{
+	CMsgClientRequestFriendData request;
+	request.persona_state_requested = -1; request.has_persona_state_requested = true;
+	request.n_friends = ids.size();
+	request.friends = (uint64_t*)&*ids.begin();
+	WSSend(EMsg::ClientRequestFriendData, request);
+}
 
-	if (msgType == EMsg::ChannelEncryptRequest || msgType == EMsg::ChannelEncryptResult) {
-		hdr.has_jobid_source = hdr.has_jobid_target = true;
-		hdr.jobid_source = *(int64_t *)buf; buf += sizeof(int64_t);
-		hdr.jobid_target = *(int64_t *)buf; buf += sizeof(int64_t);
-	}
-	else if (bIsProto) {
-		uint32_t hdrLen = *(uint32_t *)buf; buf += sizeof(uint32_t); cbLen -= sizeof(uint32_t);
-		proto::MsgProtoBufHeader tmpHeader(buf, hdrLen);
-		if (tmpHeader == nullptr) {
-			debugLogA("Unable to decode message header, exiting");
-			return;
-		}
+void CSteamProto::SendUserAddRequest(uint64_t id)
+{
+	CMsgClientAddFriend request;
+	request.has_steamid_to_add = true; request.steamid_to_add = id;
+	WSSend(EMsg::ClientAddFriend, request);
+}
 
-		memcpy(&hdr, tmpHeader, sizeof(hdr));
-		buf += hdrLen; cbLen -= hdrLen;
-	}
-	else {
-		debugLogA("Got unknown header, exiting");
-		return;
-	}
+void CSteamProto::SendUserRemoveRequest(MCONTACT hContact)
+{
+	CMsgClientRemoveFriend request;
+	request.has_friendid = true; request.friendid = SteamIdToAccountId(GetId(hContact, DBKEY_STEAM_ID));
+	WSSend(EMsg::ClientRemoveFriend, request);
+}
 
-	MsgCallback pCallback = 0;
-	{
-		mir_cslock lck(m_csRequests);
-		if (auto *pReq = m_arRequests.find((ProtoRequest *)&hdr.jobid_target)) {
-			pCallback = pReq->pCallback;
-			m_arRequests.remove(pReq);
-		}
-	}
+void CSteamProto::SendUserIgnoreRequest(MCONTACT hContact, bool bIgnore)
+{
+	MBinBuffer payload;
+	payload << m_iSteamId << SteamIdToAccountId(GetId(hContact, DBKEY_STEAM_ID)) << uint8_t(bIgnore);
+	WSSendRaw(EMsg::ClientSetIgnoreFriend, payload);
+}
 
-	if (pCallback) {
-		(this->*pCallback)(buf, cbLen);
-		return;
-	}
+void CSteamProto::SendHeartBeat()
+{
+	CMsgClientHeartBeat packet;
+	packet.has_send_reply = true; packet.send_reply = false;
+	WSSend(EMsg::ClientHeartBeat, packet);
+}
 
-	// persistent callbacks
-	switch (msgType) {
-	case EMsg::ClientLogOnResponse:
-		OnLoggedOn(buf, cbLen);
-		break;
-	}
+void CSteamProto::SendLogout()
+{
+	CMsgClientLogOff packet;
+	WSSend(EMsg::ClientLogOff, packet);
 }

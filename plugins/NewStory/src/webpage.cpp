@@ -55,6 +55,16 @@ INT_PTR SvcFileReady(WPARAM wParam, LPARAM)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+static std::set<std::wstring> g_installed_fonts;
+
+static int CALLBACK EnumFontsProc(const LOGFONTW *lplf, const TEXTMETRIC *, DWORD, LPARAM)
+{
+	g_installed_fonts.insert(lplf->lfFaceName);
+	return 1;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
 // Litehtml interface
 
 struct
@@ -95,22 +105,16 @@ static colors[] = {
 
 std::string NSWebPage::resolve_color(const std::string &color) const
 {
-	char buf[20];
-
-	if (color == "NSText") {
-		mir_snprintf(buf, "#%02X%02X%02X", GetRValue(clText), GetGValue(clText), GetBValue(clText));
-		return buf;
-	}
-
 	for (auto &clr : colors) {
 		if (!t_strcasecmp(color.c_str(), clr.name)) {
 			char  str_clr[20];
 			DWORD rgb_color = GetSysColor(clr.color_index);
-			t_snprintf(str_clr, 20, "#%02X%02X%02X", GetRValue(rgb_color), GetGValue(rgb_color), GetBValue(rgb_color));
-			return std::move(std::string(str_clr));
+			mir_snprintf(str_clr, "#%02X%02X%02X", GetRValue(rgb_color), GetGValue(rgb_color), GetBValue(rgb_color));
+			return str_clr;
 		}
 	}
-	return std::move(std::string());
+	
+	return "";
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -121,12 +125,14 @@ NSWebPage::NSWebPage(NewstoryListData &_1) :
 	m_hClipRgn = NULL;
 	m_tmp_hdc = GetDC(NULL);
 
-	EnumFonts(m_tmp_hdc, NULL, EnumFontsProc, (LPARAM)this);
-	m_installed_fonts.insert(L"monospace");
-	m_installed_fonts.insert(L"serif");
-	m_installed_fonts.insert(L"sans-serif");
-	m_installed_fonts.insert(L"fantasy");
-	m_installed_fonts.insert(L"cursive");
+	if (g_installed_fonts.empty()) {
+		EnumFonts(m_tmp_hdc, NULL, EnumFontsProc, 0);
+		g_installed_fonts.insert(L"monospace");
+		g_installed_fonts.insert(L"serif");
+		g_installed_fonts.insert(L"sans-serif");
+		g_installed_fonts.insert(L"fantasy");
+		g_installed_fonts.insert(L"cursive");
+	}
 }
 
 NSWebPage::~NSWebPage()
@@ -138,6 +144,9 @@ NSWebPage::~NSWebPage()
 			if (it->pPage == this)
 				g_arMissingFiles.remove(g_arMissingFiles.indexOf(&it));
 	}
+
+	for (auto &it : m_fonts)
+		delete_font(it.second.font);
 
 	if (m_hClipRgn)
 		DeleteObject(m_hClipRgn);
@@ -153,21 +162,19 @@ void NSWebPage::draw()
 /////////////////////////////////////////////////////////////////////////////////////////
 // former win32_container
 
-int CALLBACK NSWebPage::EnumFontsProc(const LOGFONT *lplf, const TEXTMETRIC *, DWORD, LPARAM lpData)
-{
-	NSWebPage *container = (NSWebPage *)lpData;
-	container->m_installed_fonts.insert(lplf->lfFaceName);
-	return 1;
-}
-
 static LPCWSTR get_exact_font_name(LPCWSTR facename)
 {
-	if (!lstrcmpi(facename, L"monospace"))		return L"Courier New";
-	else if (!lstrcmpi(facename, L"serif"))			return L"Times New Roman";
-	else if (!lstrcmpi(facename, L"sans-serif"))	return L"Arial";
-	else if (!lstrcmpi(facename, L"fantasy"))		return L"Impact";
-	else if (!lstrcmpi(facename, L"cursive"))		return L"Comic Sans MS";
-	else											return facename;
+	if (!lstrcmpi(facename, L"monospace"))
+		return L"Courier New";
+	if (!lstrcmpi(facename, L"serif"))
+		return L"Times New Roman";
+	if (!lstrcmpi(facename, L"sans-serif"))
+		return L"Arial";
+	if (!lstrcmpi(facename, L"fantasy"))
+		return L"Impact";
+	if (!lstrcmpi(facename, L"cursive"))
+		return L"Comic Sans MS";
+	return facename;
 }
 
 static void trim_quotes(std::string &str)
@@ -189,7 +196,7 @@ uint_ptr NSWebPage::create_font(const char *font_list, int size, int weight, fon
 		trim(name);
 		trim_quotes(name);
 		Utf2T wname(name.c_str());
-		if (m_installed_fonts.count(wname.get())) {
+		if (g_installed_fonts.count(wname.get())) {
 			font_name = wname;
 			found = true;
 			break;

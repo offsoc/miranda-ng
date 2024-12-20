@@ -14,7 +14,6 @@ class NSWebPage : public document_container
 
 	position::vector	m_clips;
 	HRGN m_hClipRgn;
-	std::set<std::wstring> m_installed_fonts;
 	HDC m_tmp_hdc;
 
 	NewstoryListData &ctrl;
@@ -74,13 +73,9 @@ class NSWebPage : public document_container
 
 	void clear_images();
 
-	static int CALLBACK EnumFontsProc(const LOGFONT *lplf, const TEXTMETRIC *lptm, DWORD dwType, LPARAM lpData);
-
 public:
 	NSWebPage(NewstoryListData &_1);
 	~NSWebPage();
-
-	COLORREF clText = -1, clBack = -1;
 
 	Bitmap* find_image(const wchar_t *pwszUrl);
 	Bitmap* load_image(const wchar_t *pwszUrl, ItemData *pItem);
@@ -91,9 +86,11 @@ public:
 struct NewstoryListData : public MZeroedObject
 {
 	NewstoryListData(HWND);
+	~NewstoryListData();
 
 	mir_cs m_csItems;
 	HistoryArray items;
+	std::map<std::string, HICON> m_protoIcons;
 
 	int scrollTopItem; // topmost item
 	int scrollTopPixel; // y coord of topmost item, this should be negative or zero

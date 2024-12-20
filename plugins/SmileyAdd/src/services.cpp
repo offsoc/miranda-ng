@@ -107,44 +107,6 @@ static INT_PTR ReplaceSmileysCommand(WPARAM, LPARAM lParam)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-static int GetInfoCommandE(SMADD_INFO *smre, bool retDup)
-{
-	if (smre == nullptr)
-		return FALSE;
-
-	SmileyPackType *SmileyPack = FindSmileyPack(smre->Protocolname);
-	if (SmileyPack == nullptr || SmileyPack->SmileyCount() == 0) {
-		smre->ButtonIcon = nullptr;
-		smre->NumberOfSmileys = 0;
-		smre->NumberOfVisibleSmileys = 0;
-		return FALSE;
-	}
-
-	SmileyType *sml = FindButtonSmiley(SmileyPack);
-
-	if (sml != nullptr)
-		smre->ButtonIcon = retDup ? sml->GetIconDup() : sml->GetIcon();
-	else
-		smre->ButtonIcon = GetDefaultIcon(retDup);
-
-	smre->NumberOfSmileys = SmileyPack->SmileyCount();
-	smre->NumberOfVisibleSmileys = SmileyPack->VisibleSmileyCount();
-
-	return TRUE;
-}
-
-static INT_PTR GetInfoCommand(WPARAM, LPARAM lParam)
-{
-	return GetInfoCommandE((SMADD_INFO*)lParam, false);
-}
-
-static INT_PTR GetInfoCommand2(WPARAM, LPARAM lParam)
-{
-	return GetInfoCommandE((SMADD_INFO*)lParam, true);
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
-
 static INT_PTR ParseTextBatch(WPARAM, LPARAM lParam)
 {
 	SMADD_BATCHPARSE *smre = (SMADD_BATCHPARSE*)lParam;
@@ -364,14 +326,18 @@ static INT_PTR LoadContactSmileys(WPARAM, LPARAM lParam)
 static INT_PTR SelectSmiley(WPARAM, LPARAM lParam)
 {
 	auto *pParam = (SMADD_SELECTSMILEY *)lParam;
-	if (pParam == nullptr || !g_pEmoji)
+	if (pParam == nullptr)
 		return 1;
+
+	auto *sml = (pParam->pszProto) ? FindSmileyPack(pParam->pszProto) : g_pEmoji;
+	if (sml == nullptr)
+		return 2;
 
 	SmileyPackType *pPack;
 	if (pParam->pszSmileys) {
 		ptrW pText(mir_utf8decodeW(pParam->pszSmileys));
 		pPack = new SmileyPackType();
-		auto &pList = g_pEmoji->GetSmileyList();
+		auto &pList = sml->GetSmileyList();
 
 		for (auto *p = wcstok(pText, L" "); p; p = wcstok(0, L" ")) {
 			for (auto &it : pList) {
@@ -382,7 +348,7 @@ static INT_PTR SelectSmiley(WPARAM, LPARAM lParam)
 			}
 		}
 	}
-	else pPack = new SmileyPackType(*g_pEmoji);
+	else pPack = new SmileyPackType(*sml);
 
 	SmileyToolWindowParam *stwp = new SmileyToolWindowParam;
 	stwp->pSmileyPack = pPack;
@@ -406,8 +372,6 @@ void InitServices()
 	HookEvent(ME_CLIST_PREBUILDCONTACTMENU, RebuildContactMenu);
 
 	CreateServiceFunction(MS_SMILEYADD_REPLACESMILEYS, ReplaceSmileysCommand);
-	CreateServiceFunction(MS_SMILEYADD_GETINFO, GetInfoCommand);
-	CreateServiceFunction(MS_SMILEYADD_GETINFO2, GetInfoCommand2);
 	CreateServiceFunction(MS_SMILEYADD_REGISTERCATEGORY, RegisterPack);
 	CreateServiceFunction(MS_SMILEYADD_BATCHPARSE, ParseTextBatch);
 	CreateServiceFunction(MS_SMILEYADD_BATCHFREE, FreeTextBatch);

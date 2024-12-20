@@ -65,8 +65,6 @@ class CMsgDialog : public CSrmmBaseDialog
 	bool   IsTypingNotificationSupported(void);
 	void   NotifyTyping(int mode);
 
-	static INT_PTR CALLBACK FilterWndProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
-
 	bool   m_bIncoming = false, m_bWindowCascaded;
 
 	MEVENT m_hDbUnreadEventFirst;
@@ -168,6 +166,7 @@ public:
 	}
 
 	wchar_t *m_wszInitialText;
+	MWindow m_hwndFilter;
 
 	void Reattach(HWND hwndContainer);
 };
@@ -209,12 +208,6 @@ int IsAutoPopup(MCONTACT hContact);
 
 void LoadMsgDlgFont(int i, LOGFONT *lf, COLORREF *colour);
 extern int fontOptionsListSize;
-
-#define LOADHISTORY_UNREAD		0
-#define LOADHISTORY_COUNT		1
-#define LOADHISTORY_TIME		2
-
-#define SRMM_MODULE						"SRMM"
 
 #define SRMSGSET_BKGCOLOUR				"BkgColour"
 #define SRMSGDEFSET_BKGCOLOUR			GetSysColor(COLOR_WINDOW)

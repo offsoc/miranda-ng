@@ -10,6 +10,7 @@
 #define IDD_CONTAINER                   107
 #define IDD_OPT_TABS                    108
 #define IDD_OPT_MSGHIST                 109
+#define IDI_STRIKEOUT                   110
 #define IDI_BUNDERLINE                  120
 #define IDI_BBOLD                       121
 #define IDI_BITALICS                    122
@@ -80,7 +81,6 @@
 #define IDC_SHOWBUTTONLINE              1042
 #define IDC_LOADUNREAD                  1043
 #define IDC_SHOWBUTTONLINE2             1043
-#define IDC_SEND_FORMAT                 1043
 #define IDC_LOADCOUNT                   1044
 #define IDC_LOADTIMEN                   1045
 #define IDC_LOADTIMESPIN                1046

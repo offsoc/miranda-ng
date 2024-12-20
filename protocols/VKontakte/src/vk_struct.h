@@ -254,7 +254,6 @@ struct CVkCookie
 struct CVKOptions {
 	CMOption<uint8_t> bLoadLastMessageOnMsgWindowsOpen;
 	CMOption<uint8_t> bLoadOnlyFriends;
-	CMOption<uint8_t> bServerDelivery;
 	CMOption<uint8_t> bHideChats;
 	CMOption<uint8_t> bMesAsUnread;
 	CMOption<uint8_t> bUseLocalTime;
@@ -302,7 +301,6 @@ struct CVKOptions {
 	CMOption<uint8_t> bNotificationFilterAcceptedFriends;
 	CMOption<uint8_t> bUseNonStandardNotifications;
 	CMOption<uint8_t> bShortenLinksForAudio;
-	CMOption<uint8_t> bAddMessageLinkToMesWAtt;
 	CMOption<uint8_t> bShowReplyInMessage;
 	CMOption<uint8_t> bSplitFormatFwdMsg;
 	CMOption<uint8_t> bSyncReadMessageStatusFromServer;

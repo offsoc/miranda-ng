@@ -29,7 +29,6 @@ class CVkOptionAccountForm : public CVkDlgBase
 	CCtrlHyperlink m_hlLink;
 	CCtrlEdit m_edtGroupName;
 	CCtrlCombo m_cbxVKLang;
-	CCtrlCheck m_cbDelivery;
 	CCtrlCheck m_cbLoadLastMessageOnMsgWindowsOpen;
 	CCtrlCheck m_cbUseLocalTime;
 	CCtrlCheck m_cbLoadOnlyFriends;
@@ -149,7 +148,6 @@ class CVkOptionViewForm : public CVkDlgBase
 
 	CCtrlCheck m_cbStikersAsSmyles;
 	CCtrlCheck m_cbShortenLinksForAudio;
-	CCtrlCheck m_cbAddMessageLinkToMesWAtt;
 	CCtrlCheck m_cbUseNonStandardNotifications;
 	CCtrlCheck m_cbShowBeforeEditedPostVersion;
 

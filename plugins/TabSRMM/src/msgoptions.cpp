@@ -402,7 +402,6 @@ public:
 		treeOpts.AddOption(pwszSection, LPGENW("Minimize the message window on send"), g_plugin.bAutoMin);
 		treeOpts.AddOption(pwszSection, LPGENW("Close the message window on send"), g_plugin.bAutoClose);
 		treeOpts.AddOption(pwszSection, LPGENW("Enable \"Paste and send\" feature"), g_plugin.bPasteAndSend);
-		treeOpts.AddOption(pwszSection, LPGENW("Allow BBCode formatting in outgoing messages"), g_plugin.bSendFormat);
 
 		pwszSection = LPGENW("Other options");
 		treeOpts.AddOption(pwszSection, LPGENW("Automatically split long messages (experimental, use with care)"), g_plugin.bAutoSplit);
@@ -800,20 +799,15 @@ public:
 
 	bool OnInitDialog() override
 	{
-		switch (g_plugin.getByte(SRMSGSET_LOADHISTORY, SRMSGDEFSET_LOADHISTORY)) {
+		switch (Srmm::iHistoryMode) {
 		case LOADHISTORY_UNREAD:
 			chkLoadUnread.SetState(true);
 			break;
 		case LOADHISTORY_COUNT:
 			chkLoadCount.SetState(true);
-			Utils::enableDlgControl(m_hwnd, IDC_LOADCOUNTN, true);
-			spnLoadCount.Enable(true);
 			break;
 		case LOADHISTORY_TIME:
 			chkLoadTime.SetState(true);
-			Utils::enableDlgControl(m_hwnd, IDC_LOADTIMEN, true);
-			spnLoadTime.Enable(true);
-			Utils::enableDlgControl(m_hwnd, IDC_STMINSOLD, true);
 			break;
 		}
 
@@ -833,11 +827,12 @@ public:
 	bool OnApply() override
 	{
 		if (chkLoadCount.GetState())
-			g_plugin.setByte(SRMSGSET_LOADHISTORY, LOADHISTORY_COUNT);
+			Srmm::iHistoryMode = LOADHISTORY_COUNT;
 		else if (chkLoadTime.GetState())
-			g_plugin.setByte(SRMSGSET_LOADHISTORY, LOADHISTORY_TIME);
+			Srmm::iHistoryMode = LOADHISTORY_TIME;
 		else
-			g_plugin.setByte(SRMSGSET_LOADHISTORY, LOADHISTORY_UNREAD);
+			Srmm::iHistoryMode = LOADHISTORY_UNREAD;
+		
 		g_plugin.setWord(SRMSGSET_LOADCOUNT, spnLoadCount.GetPosition());
 		g_plugin.setWord(SRMSGSET_LOADTIME, spnLoadTime.GetPosition());
 
@@ -1267,143 +1262,6 @@ public:
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
-
-#define DBFONTF_BOLD       1
-#define DBFONTF_ITALIC     2
-#define DBFONTF_UNDERLINE  4
-
-#define FONTS_TO_CONFIG MSGDLGFONTCOUNT
-
-#define SAMEASF_FACE   1
-#define SAMEASF_SIZE   2
-#define SAMEASF_STYLE  4
-#define SAMEASF_COLOUR 8
-#include <pshpack1.h>
-
-struct
-{
-	uint8_t sameAsFlags, sameAs;
-	COLORREF colour;
-	char size;
-	uint8_t style;
-	uint8_t charset;
-	char szFace[LF_FACESIZE];
-}
-static fontSettings[MSGDLGFONTCOUNT + 1];
-
-#include <poppack.h>
-
-#define SRFONTSETTINGMODULE FONTMODULE
-
-enum
-{
-	CBVT_NONE,
-	CBVT_CHAR,
-	CBVT_INT,
-	CBVT_BYTE,
-	CBVT_DWORD,
-	CBVT_BOOL,
-};
-
-struct OptCheckBox
-{
-	UINT idc;
-
-	uint32_t defValue;		// should be full combined value for masked items!
-	uint32_t dwBit;
-
-	uint8_t dbType;
-	char *dbModule;
-	char *dbSetting;
-
-	uint8_t valueType;
-	union
-	{
-		void *pValue;
-
-		char *charValue;
-		int *intValue;
-		uint8_t *byteValue;
-		uint32_t *dwordValue;
-		BOOL *boolValue;
-	};
-};
-
-uint32_t OptCheckBox_LoadValue(struct OptCheckBox *cb)
-{
-	switch (cb->valueType) {
-	case CBVT_NONE:
-		switch (cb->dbType) {
-		case DBVT_BYTE:
-			return db_get_b(0, cb->dbModule, cb->dbSetting, cb->defValue);
-		case DBVT_WORD:
-			return db_get_w(0, cb->dbModule, cb->dbSetting, cb->defValue);
-		case DBVT_DWORD:
-			return db_get_dw(0, cb->dbModule, cb->dbSetting, cb->defValue);
-		}
-		break;
-
-	case CBVT_CHAR:
-		return *cb->charValue;
-	case CBVT_INT:
-		return *cb->intValue;
-	case CBVT_BYTE:
-		return *cb->byteValue;
-	case CBVT_DWORD:
-		return *cb->dwordValue;
-	case CBVT_BOOL:
-		return *cb->boolValue;
-	}
-
-	return cb->defValue;
-}
-
-void OptCheckBox_Load(HWND hwnd, OptCheckBox *cb)
-{
-	uint32_t value = OptCheckBox_LoadValue(cb);
-	if (cb->dwBit) value &= cb->dwBit;
-	CheckDlgButton(hwnd, cb->idc, value ? BST_CHECKED : BST_UNCHECKED);
-}
-
-void OptCheckBox_Save(HWND hwnd, OptCheckBox *cb)
-{
-	uint32_t value = IsDlgButtonChecked(hwnd, cb->idc) == BST_CHECKED;
-
-	if (cb->dwBit) {
-		uint32_t curValue = OptCheckBox_LoadValue(cb);
-		value = value ? (curValue | cb->dwBit) : (curValue & ~cb->dwBit);
-	}
-
-	switch (cb->dbType) {
-	case DBVT_BYTE:
-		db_set_b(0, cb->dbModule, cb->dbSetting, (uint8_t)value);
-		break;
-	case DBVT_WORD:
-		db_set_w(0, cb->dbModule, cb->dbSetting, (uint16_t)value);
-		break;
-	case DBVT_DWORD:
-		db_set_dw(0, cb->dbModule, cb->dbSetting, (uint32_t)value);
-		break;
-	}
-
-	switch (cb->valueType) {
-	case CBVT_CHAR:
-		*cb->charValue = (char)value;
-		break;
-	case CBVT_INT:
-		*cb->intValue = (int)value;
-		break;
-	case CBVT_BYTE:
-		*cb->byteValue = (uint8_t)value;
-		break;
-	case CBVT_DWORD:
-		*cb->dwordValue = (uint32_t)value;
-		break;
-	case CBVT_BOOL:
-		*cb->boolValue = (BOOL)value;
-		break;
-	}
-}
 
 INT_PTR CALLBACK DlgProcSetupStatusModes(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 {

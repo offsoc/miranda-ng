@@ -147,7 +147,7 @@ class COptionMainDlg : public CDlgBase
 {
 	CCtrlEdit  edtNFlash, edtAvatarH, edtSecs;
 	CCtrlCheck chkAutoMin, chkAutoClose, chkSavePerContact, chkDoNotStealFocus, chkStatusWin;
-	CCtrlCheck chkDelTemp, chkCascade, chkCharCount, chkCtrlSupport, chkSendFormat;
+	CCtrlCheck chkDelTemp, chkCascade, chkCharCount, chkCtrlSupport;
 	CCtrlCheck chkAvatar, chkLimitAvatar;
 	CCtrlCheck chkShowSend, chkShowButtons;
 
@@ -199,7 +199,6 @@ public:
 		chkAutoClose(this, IDC_AUTOCLOSE),
 		chkCharCount(this, IDC_CHARCOUNT),
 		chkStatusWin(this, IDC_STATUSWIN),
-		chkSendFormat(this, IDC_SEND_FORMAT),
 		chkLimitAvatar(this, IDC_LIMITAVATARH),
 		chkShowButtons(this, IDC_SHOWBUTTONLINE),
 		chkCtrlSupport(this, IDC_CTRLSUPPORT),
@@ -226,7 +225,6 @@ public:
 		CreateLink(chkAutoClose, g_plugin.bAutoClose);
 		CreateLink(chkShowSend, g_plugin.bSendButton);
 		CreateLink(chkCharCount, g_plugin.bShowReadChar);
-		CreateLink(chkSendFormat, g_plugin.bSendFormat);
 		CreateLink(chkStatusWin, g_plugin.bUseStatusWinIcon);
 		CreateLink(chkShowButtons, g_plugin.bShowButtons);
 		CreateLink(chkCtrlSupport, g_plugin.bCtrlSupport);
@@ -337,7 +335,7 @@ public:
 	
 	bool OnInitDialog() override
 	{
-		switch (g_plugin.iLoadHistory) {
+		switch (Srmm::iHistoryMode) {
 		case LOADHISTORY_UNREAD:
 			chkLoadUnread.SetState(true);
 			break;
@@ -362,11 +360,11 @@ public:
 	bool OnApply() override
 	{
 		if (chkLoadCount.GetState())
-			g_plugin.iLoadHistory = LOADHISTORY_COUNT;
+			Srmm::iHistoryMode = LOADHISTORY_COUNT;
 		else if (chkLoadTime.GetState())
-			g_plugin.iLoadHistory = LOADHISTORY_TIME;
+			Srmm::iHistoryMode = LOADHISTORY_TIME;
 		else
-			g_plugin.iLoadHistory = LOADHISTORY_UNREAD;
+			Srmm::iHistoryMode = LOADHISTORY_UNREAD;
 		g_plugin.nLoadCount = spinCount.GetPosition();
 		g_plugin.nLoadTime = spinTime.GetPosition();
 

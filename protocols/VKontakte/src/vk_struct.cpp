@@ -160,7 +160,6 @@ CVkChatUser* CVkChatInfo::GetUserById(VKUserID_t iUserId)
 CVKOptions::CVKOptions(PROTO_INTERFACE* proto) :
 	bLoadLastMessageOnMsgWindowsOpen(proto, "LoadLastMessageOnMsgWindowsOpen", true),
 	bLoadOnlyFriends(proto, "LoadOnlyFriends", false),
-	bServerDelivery(proto, "BsDirect", true),
 	bHideChats(proto, "HideChats", true),
 	bMesAsUnread(proto, "MesAsUnread", false),
 	bUseLocalTime(proto, "UseLocalTime", false),
@@ -201,7 +200,6 @@ CVKOptions::CVKOptions(PROTO_INTERFACE* proto) :
 	bLoadSentAttachments(proto, "LoadSentAttachments", bSendVKLinksAsAttachments),
 	bUseNonStandardNotifications(proto, "UseNonStandardNotifications", false),
 	bShortenLinksForAudio(proto, "ShortenLinksForAudio", true),
-	bAddMessageLinkToMesWAtt(proto, "AddMessageLinkToMesWAtt", true),
 	bShowReplyInMessage(proto, "ShowReplyInMessage", false),
 	bSplitFormatFwdMsg(proto, "SplitFormatFwdMsg", false),
 	bSyncReadMessageStatusFromServer(proto, "SyncReadMessageStatusFromServer", false),

@@ -1,65 +1,49 @@
 #include "stdafx.h"
 
-static int64_t getRandomInt()
+uint64_t getRandomInt()
 {
-	int64_t ret;
+	uint64_t ret;
 	Utils_GetRandom(&ret, sizeof(ret));
-	return (ret >= 0) ? ret : -ret;
+	return ret & INT64_MAX;
 }
 
-void CSteamProto::WSSend(EMsg msgType, const ProtobufCppMessage &msg)
+/////////////////////////////////////////////////////////////////////////////////////////
+
+MBinBuffer createMachineID(const char *accName)
 {
-	CMsgProtoBufHeader hdr;
-	hdr.has_client_sessionid = hdr.has_steamid = hdr.has_jobid_source = hdr.has_jobid_target = true;
+	uint8_t hashOut[MIR_SHA1_HASH_SIZE];
+	char hashHex[MIR_SHA1_HASH_SIZE * 2 + 1];
 
-	switch (msgType) {
-	case EMsg::ClientHello:
-		hdr.jobid_source = -1;
-		break;
+	CMStringA _bb3 = CMStringA("SteamUser Hash BB3 ") + accName;
+	CMStringA _ff2 = CMStringA("SteamUser Hash FF2 ") + accName;
+	CMStringA _3b3 = CMStringA("SteamUser Hash 3B3 ") + accName;
 
-	default:
-		hdr.jobid_source = getRandomInt();
-		break;
-	}
-	
-	hdr.jobid_target = -1;
+	MBinBuffer ret;
+	uint8_t c = 0;
+	ret.append(&c, 1);
+	ret.append("MessageObject", 14);
 
-	WSSendHeader(msgType, hdr, msg);
-}
+	c = 1;
+	ret.append(&c, 1);
+	ret.append("BB3", 4);
+	mir_sha1_hash((uint8_t *)_bb3.c_str(), _bb3.GetLength(), hashOut);
+	bin2hex(hashOut, sizeof(hashOut), hashHex);
+	ret.append(hashHex, 41);
 
-void CSteamProto::WSSendHeader(EMsg msgType, const CMsgProtoBufHeader &hdr, const ProtobufCppMessage &msg)
-{
-	uint32_t hdrLen = (uint32_t)protobuf_c_message_get_packed_size(&hdr);
-	MBinBuffer hdrbuf(hdrLen);
-	protobuf_c_message_pack(&hdr, (uint8_t *)hdrbuf.data());
-	hdrbuf.appendBefore(&hdrLen, sizeof(hdrLen));
+	ret.append(&c, 1);
+	ret.append("FF2", 4);
+	mir_sha1_hash((uint8_t *)_ff2.c_str(), _ff2.GetLength(), hashOut);
+	bin2hex(hashOut, sizeof(hashOut), hashHex);
+	ret.append(hashHex, 41);
 
-	uint32_t type = (uint32_t)msgType;
-	type |= STEAM_PROTOCOL_MASK;
-	hdrbuf.appendBefore(&type, sizeof(type));
+	ret.append(&c, 1);
+	ret.append("3B3", 4);
+	mir_sha1_hash((uint8_t *)_3b3.c_str(), _3b3.GetLength(), hashOut);
+	bin2hex(hashOut, sizeof(hashOut), hashHex);
+	ret.append(hashHex, 41);
 
-	MBinBuffer body(protobuf_c_message_get_packed_size(&msg));
-	protobuf_c_message_pack(&msg, body.data());
-
-	hdrbuf.append(body);
-	m_ws->sendBinary(hdrbuf.data(), hdrbuf.length());
-}
-
-void CSteamProto::WSSendService(const char *pszServiceName, const ProtobufCppMessage &msg, MsgCallback pCallback)
-{
-	CMsgProtoBufHeader hdr;
-	hdr.has_client_sessionid = hdr.has_steamid = hdr.has_jobid_source = hdr.has_jobid_target = true;
-	hdr.jobid_source = getRandomInt();
-	hdr.jobid_target = -1;
-	hdr.target_job_name = (char*)pszServiceName;
-	hdr.realm = 1; hdr.has_realm = true;
-
-	if (pCallback) {
-		mir_cslock lck(m_csRequests);
-		m_arRequests.insert(new ProtoRequest(hdr.jobid_source, pCallback));
-	}
-
-	WSSendHeader(EMsg::ServiceMethodCallFromClientNonAuthed, hdr, msg);
+	ret.append("\x08\x08", 2);
+	return ret;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -91,8 +75,9 @@ void CSteamProto::SetId(const char *pszSetting, int64_t id)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+// Statuses
 
-uint16_t CSteamProto::SteamToMirandaStatus(PersonaState state)
+int SteamToMirandaStatus(PersonaState state)
 {
 	switch (state) {
 	case PersonaState::Offline:
@@ -115,7 +100,7 @@ uint16_t CSteamProto::SteamToMirandaStatus(PersonaState state)
 	}
 }
 
-PersonaState CSteamProto::MirandaToSteamState(int status)
+PersonaState MirandaToSteamState(int status)
 {
 	switch (status) {
 	case ID_STATUS_OFFLINE:
@@ -137,7 +122,10 @@ PersonaState CSteamProto::MirandaToSteamState(int status)
 	}
 }
 
-void CSteamProto::ShowNotification(const wchar_t *caption, const wchar_t *message, int flags, MCONTACT hContact)
+/////////////////////////////////////////////////////////////////////////////////////////
+// Popups
+
+void ShowNotification(const wchar_t *caption, const wchar_t *message, int flags, MCONTACT hContact)
 {
 	if (Miranda_IsTerminated())
 		return;
@@ -156,10 +144,12 @@ void CSteamProto::ShowNotification(const wchar_t *caption, const wchar_t *messag
 	MessageBox(nullptr, message, caption, MB_OK | flags);
 }
 
-void CSteamProto::ShowNotification(const wchar_t *message, int flags, MCONTACT hContact)
+void ShowNotification(const wchar_t *message, int flags, MCONTACT hContact)
 {
 	ShowNotification(_A2W(MODULE), message, flags, hContact);
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 INT_PTR CSteamProto::OnGetEventTextChatStates(WPARAM pEvent, LPARAM datatype)
 {

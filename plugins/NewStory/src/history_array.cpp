@@ -210,6 +210,9 @@ int ItemData::calcHeight(int width)
 		if (dbe.flags & DBEF_BOOKMARK) // Bookmark icon
 			xPos += 18;
 
+		if (pOwner->m_hContact == INVALID_CONTACT_ID) // Protocol icon
+			xPos += 18;
+
 		cx -= xPos;
 		if (m_bOfflineDownloaded != 0 || m_bDelivered || m_bRemoteRead) // Download completed icon
 			cx -= 18;
@@ -469,12 +472,6 @@ void ItemData::load(bool bLoadAlways)
 void ItemData::setText(const wchar_t *pwszText)
 {
 	savedHeight = -1;
-
-	int fontid, colorid;
-	getFontColor(fontid, colorid);
-
-	pOwner->webPage.clText = g_fontTable[fontid].cl;
-	pOwner->webPage.clBack = g_colorTable[colorid].cl;
 
 	T2Utf szFormattedBody(formatHtml(pwszText));
 	if (szFormattedBody)

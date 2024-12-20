@@ -325,8 +325,7 @@ CMsgDialog::CMsgDialog(int iDlgId, MCONTACT hContact) :
 	timerAwayMsg(this, 100),
 	m_btnAdd(this, IDC_ADD),
 	m_btnQuote(this, IDC_QUOTE),
-	m_btnCancelAdd(this, IDC_CANCELADD),
-	m_btnStrikeout(this, IDC_SRMM_STRIKEOUT)
+	m_btnCancelAdd(this, IDC_CANCELADD)
 {
 	m_hContact = hContact;
 
@@ -342,8 +341,6 @@ CMsgDialog::CMsgDialog(int iDlgId, MCONTACT hContact) :
 		m_btnAdd.OnClick = Callback(this, &CMsgDialog::onClick_Add);
 		m_btnCancelAdd.OnClick = Callback(this, &CMsgDialog::onClick_CancelAdd);
 	}
-
-	GetSendFormat();
 
 	m_szProto = Proto_GetBaseAccountName(m_hContact);
 	m_autoClose = CLOSE_ON_CANCEL;
@@ -617,7 +614,7 @@ bool CMsgDialog::OnInitDialog()
 		m_bWasBackgroundCreate = m_bNeedCheckSize = m_bDeferredScroll = true;
 	}
 
-	if (isChat()) {
+	if (isChat() && !g_plugin.bApplyPrivateSettings) {
 		m_pContainer->m_hwndActive = m_hwnd;
 		ShowWindow(m_hwnd, SW_SHOW);
 	}
@@ -926,6 +923,9 @@ void CMsgDialog::onClick_Filter(CCtrlButton *pButton)
 	if (m_bFilterEnabled && !g_chatApi.bRightClickFilter)
 		ShowFilterMenu();
 	else {
+		if (m_hwndFilter)
+			SendMessage(m_hwndFilter, WM_CLOSE, 0, 0);
+
 		RedrawLog();
 		UpdateTitle();
 	}
@@ -1416,25 +1416,11 @@ int CMsgDialog::OnFilter(MSGFILTER *pFilter)
 
 	if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && !(GetKeyState(VK_RMENU) & 0x8000)) {
 		MSG message = { m_hwnd, msg, wp, lp };
-		LRESULT mim_hotkey_check = Hotkey_Check(&message, isChat() ? TABSRMM_HK_SECTION_GC : TABSRMM_HK_SECTION_IM);
+		LRESULT mim_hotkey_check = Hotkey_Check(&message, TABSRMM_HK_SECTION_IM);
 		if (mim_hotkey_check)
 			m_bkeyProcessed = true;
 
 		switch (mim_hotkey_check) {
-		case TABSRMM_HK_CHANNELMGR:
-			m_btnChannelMgr.Click();
-			return _dlgReturn(m_hwnd, 1);
-		case TABSRMM_HK_FILTERTOGGLE:
-			m_btnFilter.Click();
-			InvalidateRect(m_btnFilter.GetHwnd(), nullptr, TRUE);
-			return _dlgReturn(m_hwnd, 1);
-		case TABSRMM_HK_LISTTOGGLE:
-			m_btnNickList.Click();
-			return _dlgReturn(m_hwnd, 1);
-		case TABSRMM_HK_MUC_SHOWSERVER:
-			if (m_si->iType != GCW_SERVER)
-				Chat_DoEventHook(m_si, GC_USER_MESSAGE, nullptr, L"/servershow", 0);
-			return _dlgReturn(m_hwnd, 1);
 		case TABSRMM_HK_SETUSERPREFS:
 			CallService(MS_TABMSG_SETUSERPREFS, m_hContact, 0);
 			return _dlgReturn(m_hwnd, 1);
@@ -1917,7 +1903,16 @@ LRESULT CMsgDialog::WndProc_Message(UINT msg, WPARAM wParam, LPARAM lParam)
 		return TRUE;
 	}
 
-	return CSuper::WndProc_Message(msg, wParam, lParam);
+	auto ret = CSuper::WndProc_Message(msg, wParam, lParam);
+
+	switch (msg) {
+	case EM_PASTESPECIAL:
+	case WM_PASTE:
+		if (m_bIsAutosizingInput)
+			SendMessage(m_message.GetHwnd(), EM_SETSEL, 0, 0);
+	}
+
+	return ret;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -2227,7 +2222,6 @@ INT_PTR CMsgDialog::DlgProc(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		SetWindowLongPtr(GetDlgItem(m_hwnd, IDC_SPLITTERY), GWL_EXSTYLE, GetWindowLongPtr(GetDlgItem(m_hwnd, IDC_SPLITTERY), GWL_EXSTYLE) & ~WS_EX_STATICEDGE);
 
 		if (lParam == 1) {
-			GetSendFormat();
 			SetDialogToType();
 			DM_RecalcPictureSize();
 			Resize();

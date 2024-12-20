@@ -56,7 +56,6 @@ CMPlugin::CMPlugin() :
 	bAutoClose(SRMM_MODULE, "AutoClose", false),
 	bAutoPopup(SRMM_MODULE, "AutoPopupMsg", false),
 	bSaveDrafts(SRMM_MODULE, "SaveDrafts", false),
-	bSendFormat(SRMM_MODULE, "SendFormat", false),
 	bTypingUnknown(SRMM_MODULE, "UnknownTyping", false),
 	bHideContainer(SRMM_MODULE, "HideContainers", false),
 	bStayMinimized(SRMM_MODULE, "StayMinimized", false),
@@ -110,7 +109,6 @@ CMPlugin::CMPlugin() :
 	iActiveAlpha(SRMM_MODULE, "ActiveAlpha", 0),
 	iInactiveAlpha(SRMM_MODULE, "InactiveAlpha", 0),
 	iMsgTimeout(SRMM_MODULE, "MessageTimeout", 10),
-	iHistoryMode(SRMM_MODULE, "LoadHistory", LOADHISTORY_UNREAD),
 	iAutoResizeLines(SRMM_MODULE, "AutoResizeLines", 2),
 
 	bSoundsFocus(CHAT_MODULE, "SoundsFocus", false),

@@ -96,6 +96,7 @@ CMStringA CTelegramProto::GetFormattedText(TD::object_ptr<TD::formattedText> &pT
 		case TD::textEntityTypeItalic::ID: iCode = 1; break;
 		case TD::textEntityTypeStrikethrough::ID: iCode = 2; break;
 		case TD::textEntityTypeUnderline::ID: iCode = 3; break;
+		case TD::textEntityTypeTextUrl::ID: iCode = 4; break;
 		case TD::textEntityTypeCode::ID: iCode = 5; break;
 		case TD::textEntityTypeBlockQuote::ID: iCode = 6; break;
 		default:
@@ -381,8 +382,6 @@ TG_USER* CTelegramProto::AddUser(int64_t id, bool bIsChat)
 
 void CTelegramProto::InitPopups(void)
 {
-	g_plugin.addPopupOption(CMStringW(FORMAT, TranslateT("%s error notifications"), m_tszUserName), m_bUsePopups);
-
 	char name[256];
 	mir_snprintf(name, "%s_%s", m_szModuleName, "Error");
 
@@ -507,7 +506,7 @@ CMStringA CTelegramProto::GetMessagePreview(const TD::file *pFile)
 	return T2Utf(pRequest->m_destPath + L"\\" + pRequest->m_fileName).get();
 }
 
-CMStringA CTelegramProto::GetMessageSticker(const TD::file *pFile, const char *pwszExtension)
+CMStringA CTelegramProto::GetMessageSticker(const TD::file *pFile, const TD::ThumbnailFormat *pFormat)
 {
 	auto *pFileId = pFile->remote_->unique_id_.c_str();
 
@@ -516,7 +515,18 @@ CMStringA CTelegramProto::GetMessageSticker(const TD::file *pFile, const char *p
 	pRequest->m_destPath = GetAvatarPath() + L"\\Stickers";
 	CreateDirectoryW(pRequest->m_destPath, 0);
 
-	pRequest->m_fileName.Format(L"STK{%S}.%S", pFileId, pwszExtension);
+	const char *pszFileExt;
+	switch (pFormat->get_id()) {
+	case TD::thumbnailFormatGif::ID: pszFileExt = "gif"; break;
+	case TD::thumbnailFormatPng::ID: pszFileExt = "png"; break;
+	case TD::thumbnailFormatTgs::ID: pszFileExt = "tga"; break;
+	case TD::thumbnailFormatJpeg::ID: pszFileExt = "jpg"; break;
+	case TD::thumbnailFormatWebm::ID: pszFileExt = "webm"; break;
+	case TD::thumbnailFormatWebp::ID: pszFileExt = "webp"; break;
+	default:pszFileExt = "jpeg"; break;
+	}
+
+	pRequest->m_fileName.Format(L"STK{%S}.%S", pFileId, pszFileExt);
 	{
 		mir_cslock lck(m_csFiles);
 		m_arFiles.insert(pRequest);
@@ -649,39 +659,44 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 	case TD::messageAudio::ID:
 		if (auto *pDoc = (TD::messageAudio *)pBody) {
 			auto *pAudio = pDoc->audio_.get();
-			CMStringA fileName(FORMAT, "%s (%d %s)", TranslateU("Audio"), pAudio->duration_, TranslateU("seconds"));
-			std::string caption = fileName.c_str();
+			CMStringA caption(FORMAT, "%s (%d %s)", TranslateU("Audio"), pAudio->duration_, TranslateU("seconds"));
 			if (!pDoc->caption_->text_.empty()) {
 				caption += " ";
-				caption += pDoc->caption_->text_;
+				caption += pDoc->caption_->text_.c_str();
 			}
-			GetMessageFile(embed, TG_FILE_REQUEST::VIDEO, pAudio->audio_.get(), pAudio->file_name_.c_str(), caption.c_str());
+			GetMessageFile(embed, TG_FILE_REQUEST::VIDEO, pAudio->audio_.get(), pAudio->file_name_.c_str(), caption);
 		}
 		break;
 
 	case TD::messageVideo::ID:
 		if (auto *pDoc = (TD::messageVideo *)pBody) {
 			auto *pVideo = pDoc->video_.get();
-			CMStringA fileName(FORMAT, "%s (%d x %d, %d %s)", TranslateU("Video"), pVideo->width_, pVideo->height_, pVideo->duration_, TranslateU("seconds"));
-			std::string caption = fileName.c_str();
+			CMStringA caption(FORMAT, "%s (%d x %d, %d %s)", TranslateU("Video"), pVideo->width_, pVideo->height_, pVideo->duration_, TranslateU("seconds"));
 			if (!pDoc->caption_->text_.empty()) {
 				caption += " ";
-				caption += pDoc->caption_->text_;
+				caption += pDoc->caption_->text_.c_str();
 			}
-			GetMessageFile(embed, TG_FILE_REQUEST::VIDEO, pVideo->video_.get(), pVideo->file_name_.c_str(), caption.c_str());
+			GetMessageFile(embed, TG_FILE_REQUEST::VIDEO, pVideo->video_.get(), pVideo->file_name_.c_str(), caption);
 		}
 		break;
 
 	case TD::messageAnimation::ID:
 		if (auto *pDoc = (TD::messageAnimation *)pBody) {
 			auto *pVideo = pDoc->animation_.get();
-			CMStringA fileName(FORMAT, "%s (%d x %d, %d %s)", TranslateU("Video"), pVideo->width_, pVideo->height_, pVideo->duration_, TranslateU("seconds"));
-			std::string caption = fileName.c_str();
+			CMStringA caption(FORMAT, "%s (%d x %d, %d %s)", TranslateU("Video"), pVideo->width_, pVideo->height_, pVideo->duration_, TranslateU("seconds"));
 			if (!pDoc->caption_->text_.empty()) {
 				caption += " ";
-				caption += pDoc->caption_->text_;
+				caption += pDoc->caption_->text_.c_str();
 			}
 			GetMessageFile(embed, TG_FILE_REQUEST::VIDEO, pVideo->animation_.get(), pVideo->file_name_.c_str(), caption.c_str());
+		}
+		break;
+
+	case TD::messageVideoNote::ID:
+		if (auto *pDoc = (TD::messageVideoNote *)pBody) {
+			auto *pVideo = pDoc->video_note_.get();
+			CMStringA fileName(FORMAT, "%s (%d %s)", TranslateU("Video note"), pVideo->duration_, TranslateU("seconds"));
+			GetMessageFile(embed, TG_FILE_REQUEST::VIDEO, pVideo->video_.get(), fileName, "");
 		}
 		break;
 
@@ -707,18 +722,7 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 							break;
 						}
 
-						const char *pwszFileExt;
-						switch (pSticker->thumbnail_->format_->get_id()) {
-						case TD::thumbnailFormatGif::ID: pwszFileExt = "gif"; break;
-						case TD::thumbnailFormatPng::ID: pwszFileExt = "png"; break;
-						case TD::thumbnailFormatTgs::ID: pwszFileExt = "tga"; break;
-						case TD::thumbnailFormatJpeg::ID: pwszFileExt = "jpg"; break;
-						case TD::thumbnailFormatWebm::ID: pwszFileExt = "webm"; break;
-						case TD::thumbnailFormatWebp::ID: pwszFileExt = "webp"; break;
-						default:pwszFileExt = "jpeg"; break;
-						}
-
-						ret = GetMessageSticker(pSticker->thumbnail_->file_.get(), pwszFileExt);
+						ret = GetMessageSticker(pSticker->thumbnail_->file_.get(), pSticker->thumbnail_->format_.get());
 						break;
 					}
 				}
@@ -736,15 +740,7 @@ CMStringA CTelegramProto::GetMessageText(TG_USER *pUser, const TD::message *pMsg
 			
 			if (m_bSmileyAdd) {
 				if (pSticker->thumbnail_.get()) {
-					const char *pwszFileExt;
-					switch (pSticker->format_->get_id()) {
-					case TD::stickerFormatTgs::ID: pwszFileExt = "tga"; break;
-					case TD::stickerFormatWebm::ID: pwszFileExt = "webm"; break;
-					case TD::stickerFormatWebp::ID: pwszFileExt = "webp"; break;
-					default:
-						pwszFileExt = "jpeg"; break;
-					}
-					ret = GetMessageSticker(pSticker->thumbnail_->file_.get(), pwszFileExt);
+					ret = GetMessageSticker(pSticker->thumbnail_->file_.get(), pSticker->thumbnail_->format_.get());
 				}
 				else {
 					debugLogA("Strange sticker without preview");

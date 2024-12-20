@@ -221,22 +221,27 @@ void CTelegramProto::ProcessFile(TD::updateFile *pObj)
 	if (pFile == nullptr)
 		return;
 
+	auto *pLocal = pFile->local_.get();
 	auto *pRemote = pFile->remote_.get();
 	if (pRemote == nullptr)
 		return;
 
-	if (!pFile->local_->is_downloading_completed_) {
+	if (!pLocal->is_downloading_completed_) {
 		if (auto *F = FindFile(pRemote->unique_id_.c_str())) {
 			if (F->m_type != F->AVATAR && F->ofd) {
 				DBVARIANT dbv = { DBVT_DWORD };
-				dbv.dVal = pFile->local_->downloaded_size_;
+				dbv.dVal = pLocal->downloaded_size_;
 				db_event_setJson(F->ofd->hDbEvent, "ft", &dbv);
 			}
 		}
 		return;
 	}
 
-	Utf2T wszExistingFile(pFile->local_->path_.c_str());
+	// file upload is not completed, skip it
+	if (pRemote->is_uploading_active_)
+		return;
+
+	Utf2T wszExistingFile(pLocal->path_.c_str());
 
 	if (auto *F = FindFile(pRemote->unique_id_.c_str())) {
 		if (F->m_type == F->AVATAR) {
@@ -253,31 +258,35 @@ void CTelegramProto::ProcessFile(TD::updateFile *pObj)
 					FreeImage_Unload(pImage);
 				}
 			}
+			else if (F->m_fileName.Right(4).MakeLower() == L".tga") {
+				if (auto *pImage = FreeImage_LoadU(FIF_TARGA, wszExistingFile)) {
+					wszFullName.Truncate(wszFullName.GetLength() - 5);
+					wszFullName += L".png";
+					FreeImage_SaveU(FIF_PNG, pImage, wszFullName);
+					FreeImage_Unload(pImage);
+				}
+			}
 			else MoveFileW(wszExistingFile, wszFullName);
 
 			if (F->m_isSmiley)
 				SmileyAdd_LoadContactSmileys(SMADD_FILE, m_szModuleName, wszFullName);
 			else
 				NS_NotifyFileReady(wszFullName);
-
-			mir_cslock lck(m_csFiles);
-			m_arFiles.remove(F);
-			delete F;
 		}
 		else { // FILE, PICTURE, VIDEO, VOICE
 			if (F->ofd == nullptr)
 				return;
 
 			DBVARIANT dbv = { DBVT_DWORD };
-			dbv.dVal = pFile->local_->downloaded_size_;
+			dbv.dVal = pLocal->downloaded_size_;
 			db_event_setJson(F->ofd->hDbEvent, "ft", &dbv);
 
 			CMStringW wszFullName(F->ofd->wszPath);
 			int idxSlash = wszFullName.ReverseFind('\\') + 1;
 			if (wszFullName.Find('.', idxSlash) == -1) {
-				auto *pSlash = strrchr(pFile->local_->path_.c_str(), '\\');
+				auto *pSlash = strrchr(pLocal->path_.c_str(), '\\');
 				if (!pSlash)
-					pSlash = pFile->local_->path_.c_str();
+					pSlash = pLocal->path_.c_str();
 				else
 					pSlash++;
 
@@ -302,11 +311,11 @@ void CTelegramProto::ProcessFile(TD::updateFile *pObj)
 
 			MoveFileW(wszExistingFile, F->ofd->wszPath);
 			F->ofd->Finish();
-
-			mir_cslock lck(m_csFiles);
-			m_arFiles.remove(F);
-			delete F;
 		}
+
+		mir_cslock lck(m_csFiles);
+		m_arFiles.remove(F);
+		delete F;
 		return;
 	}
 
